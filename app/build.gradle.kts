@@ -80,4 +80,6 @@ dependencies {
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
 }
