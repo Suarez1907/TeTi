@@ -3,9 +3,20 @@ name: Android CI
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to upload APK to (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -38,3 +49,18 @@ jobs:
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Upload APK to Release
+      if: success() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''))
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        INPUT_TAG: ${{ github.event.inputs.release_tag }}
+        REF_NAME: ${{ github.ref_name }}
+        EVENT_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        TAG="${EVENT_TAG:-${INPUT_TAG:-$REF_NAME}}"
+        if [ -n "$TAG" ] && [ "$TAG" != "main" ]; then
+          echo "Uploading APK to release $TAG..."
+          cp app/build/outputs/apk/debug/app-debug.apk "TeTi-${TAG}.apk"
+          gh release upload "$TAG" "TeTi-${TAG}.apk" --clobber
+        fi
