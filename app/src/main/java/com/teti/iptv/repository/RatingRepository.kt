@@ -65,7 +65,7 @@ class RatingRepository @Inject constructor(
         return runCatching {
             val response = ratingApiService.getOmdbByTitle(apiKey = apiKey, title = title, year = year)
             val model = json.decodeFromString<OmdbResponse>(response.string())
-            if (model.Response.equals("True", ignoreCase = true)) {
+            if (model.response.equals("True", ignoreCase = true)) {
                 model.imdbRating?.toFloatOrNull()
             } else null
         }.getOrNull()
