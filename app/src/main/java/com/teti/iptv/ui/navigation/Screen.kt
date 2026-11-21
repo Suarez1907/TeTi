@@ -1,8 +1,6 @@
 package com.teti.iptv.ui.navigation
 
-import java.net.URLDecoder
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import android.net.Uri
 
 sealed class Screen(val route: String) {
     data object LiveTv : Screen("live_tv")
@@ -26,7 +24,6 @@ sealed class Screen(val route: String) {
     }
 
     companion object {
-        fun urlEncode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
-        fun urlDecode(value: String): String = URLDecoder.decode(value, StandardCharsets.UTF_8.toString())
+        fun urlEncode(value: String): String = Uri.encode(value)
     }
 }

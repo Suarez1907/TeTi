@@ -188,7 +188,7 @@ fun MainContent() {
                 route = Screen.VodDetail.route,
                 arguments = listOf(navArgument("streamId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val streamId = Screen.urlDecode(backStackEntry.arguments?.getString("streamId") ?: "")
+                val streamId = backStackEntry.arguments?.getString("streamId") ?: ""
                 VodDetailScreen(
                     streamId = streamId,
                     onBack = { navController.popBackStack() },
@@ -202,12 +202,12 @@ fun MainContent() {
                 route = Screen.SeriesDetail.route,
                 arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
             ) { backStackEntry ->
-                val seriesId = Screen.urlDecode(backStackEntry.arguments?.getString("seriesId") ?: "")
+                val seriesId = backStackEntry.arguments?.getString("seriesId") ?: ""
                 SeriesDetailScreen(
                     seriesId = seriesId,
                     onBack = { navController.popBackStack() },
-                    onPlayEpisode = { url, title ->
-                        navController.navigate(Screen.Player.createRoute(url, title, seriesId, isLive = false))
+                    onPlayEpisode = { url, title, contentId ->
+                        navController.navigate(Screen.Player.createRoute(url, title, contentId, isLive = false))
                     }
                 )
             }
@@ -221,9 +221,9 @@ fun MainContent() {
                     navArgument("isLive") { type = NavType.BoolType; defaultValue = false }
                 )
             ) { backStackEntry ->
-                val url = Screen.urlDecode(backStackEntry.arguments?.getString("url") ?: "")
-                val title = Screen.urlDecode(backStackEntry.arguments?.getString("title") ?: "")
-                val contentId = Screen.urlDecode(backStackEntry.arguments?.getString("contentId") ?: "")
+                val url = backStackEntry.arguments?.getString("url") ?: ""
+                val title = backStackEntry.arguments?.getString("title") ?: ""
+                val contentId = backStackEntry.arguments?.getString("contentId") ?: ""
                 val isLive = backStackEntry.arguments?.getBoolean("isLive") ?: false
 
                 PlayerScreen(

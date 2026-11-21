@@ -25,10 +25,12 @@ class PlayerViewModel @Inject constructor(
     val subtitleTracks: StateFlow<List<TrackInfo>> = playerManager.subtitleTracks
     val currentPosition: StateFlow<Long> = playerManager.currentPosition
     val duration: StateFlow<Long> = playerManager.duration
+    val playbackError: StateFlow<String?> = playerManager.playbackError
 
     fun getPlayer() = playerManager.getPlayer()
 
     private var progressTrackerJob: Job? = null
+    private var uiPositionTrackerJob: Job? = null
     private var currentContentId: String? = null
     private var currentProfileId: Long = 0L
     private var currentTitle: String = ""
@@ -38,21 +40,32 @@ class PlayerViewModel @Inject constructor(
     fun startPlayback(
         url: String,
         contentId: String,
-        profileId: Long,
         title: String,
         poster: String? = null,
         isLive: Boolean = false
     ) {
         currentContentId = contentId
-        currentProfileId = profileId
+        currentProfileId = 0L
         currentTitle = title
         currentPoster = poster
         isLiveStream = isLive
 
         viewModelScope.launch {
+            currentProfileId = repository.getActiveProfileOnce()?.id ?: 0L
             val startPos = if (!isLive) repository.getWatchPosition(contentId) else 0L
             playerManager.play(url, startPos)
             startProgressTracking()
+            startUiPositionTracking()
+        }
+    }
+
+    private fun startUiPositionTracking() {
+        uiPositionTrackerJob?.cancel()
+        uiPositionTrackerJob = viewModelScope.launch {
+            while (isActive) {
+                playerManager.updatePosition()
+                delay(500)
+            }
         }
     }
 
@@ -89,9 +102,11 @@ class PlayerViewModel @Inject constructor(
     fun togglePlayPause() = playerManager.togglePlayPause()
     fun selectAudio(track: TrackInfo) = playerManager.selectAudioTrack(track)
     fun selectSubtitle(track: TrackInfo?) = playerManager.selectSubtitleTrack(track)
+    fun retry() = playerManager.retry()
 
     override fun onCleared() {
         progressTrackerJob?.cancel()
+        uiPositionTrackerJob?.cancel()
         playerManager.release()
         super.onCleared()
     }

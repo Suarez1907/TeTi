@@ -144,7 +144,7 @@ fun VodDetailScreen(
 fun SeriesDetailScreen(
     seriesId: String,
     onBack: () -> Unit,
-    onPlayEpisode: (url: String, title: String) -> Unit,
+    onPlayEpisode: (url: String, title: String, contentId: String) -> Unit,
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val series by viewModel.series.collectAsState()
@@ -246,8 +246,12 @@ fun SeriesDetailScreen(
                             .padding(vertical = 4.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .clickable {
-                                // Xtream bölüm url oluşturma veya çalma
-                                onPlayEpisode(ep.id, "${s.title} S${selectedSeason}E${ep.episodeNum}")
+                                val url = viewModel.getEpisodeStreamUrl(ep) ?: return@clickable
+                                onPlayEpisode(
+                                    url,
+                                    "${s.title} S${selectedSeason}E${ep.episodeNum}",
+                                    "${seriesId}_${ep.id}"
+                                )
                             },
                         color = DarkSurface
                     ) {

@@ -42,11 +42,12 @@ class StreamingM3uParser {
                     currentEpgId = TVG_ID_REGEX.find(trimmed)?.groupValues?.get(1)?.ifBlank { null }
                     currentLogo = TVG_LOGO_REGEX.find(trimmed)?.groupValues?.get(1)?.ifBlank { null }
                     currentGroup = GROUP_TITLE_REGEX.find(trimmed)?.groupValues?.get(1)?.ifBlank { "Genel" } ?: "Genel"
-                    currentTitle = trimmed.substringAfterLast(",").trim()
+                    currentTitle = extractExtInfTitle(trimmed)
                 } else if (!trimmed.startsWith("#")) {
                     val streamUrl = trimmed
-                    val isVod = VOD_EXTENSIONS.any { streamUrl.endsWith(it, ignoreCase = true) } ||
-                            streamUrl.contains("/movie/", ignoreCase = true)
+                    val streamPath = streamUrl.substringBefore('?').substringBefore('#')
+                    val isVod = VOD_EXTENSIONS.any { streamPath.endsWith(it, ignoreCase = true) } ||
+                            streamPath.contains("/movie/", ignoreCase = true)
 
                     if (isVod) {
                         vodBatch.add(
@@ -91,5 +92,23 @@ class StreamingM3uParser {
 
         if (channelBatch.isNotEmpty()) onChannelsBatch(channelBatch)
         if (vodBatch.isNotEmpty()) onVodBatch(vodBatch)
+    }
+
+    private fun extractExtInfTitle(line: String): String {
+        var quoted = false
+        var escaped = false
+        for (index in line.indexOf(':') + 1 until line.length) {
+            val char = line[index]
+            if (escaped) {
+                escaped = false
+            } else if (char == '\\') {
+                escaped = true
+            } else if (char == '"') {
+                quoted = !quoted
+            } else if (char == ',' && !quoted) {
+                return line.substring(index + 1).trim()
+            }
+        }
+        return ""
     }
 }

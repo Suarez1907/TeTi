@@ -2,6 +2,7 @@ package com.teti.iptv.data.remote.parser
 
 import android.util.JsonReader
 import android.util.JsonToken
+import android.net.Uri
 import com.teti.iptv.data.local.entity.ChannelEntity
 import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.data.local.entity.VodEntity
@@ -25,11 +26,13 @@ class StreamingXtreamParser {
     ) {
         val batch = ArrayList<ChannelEntity>(BATCH_SIZE)
         val cleanHost = serverUrl.trimEnd('/')
+        val encodedUsername = Uri.encode(username)
+        val encodedPassword = Uri.encode(password)
         var sortIndex = 0
 
         JsonReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
             reader.isLenient = true
-            if (reader.peek() != JsonToken.BEGIN_ARRAY) return
+            check(reader.peek() == JsonToken.BEGIN_ARRAY) { "Xtream canlı kanal yanıtı dizi değil" }
 
             reader.beginArray()
             while (reader.hasNext()) {
@@ -59,7 +62,7 @@ class StreamingXtreamParser {
                             profileId = profileId,
                             name = name.ifBlank { "Kanal $streamId" },
                             categoryName = categoryMap[categoryId] ?: "Canlı",
-                            streamUrl = "$cleanHost/live/$username/$password/$streamId.ts",
+                            streamUrl = "$cleanHost/live/$encodedUsername/$encodedPassword/$streamId.ts",
                             logoUrl = logoUrl,
                             epgChannelId = epgChannelId,
                             sortOrder = sortIndex++
@@ -88,10 +91,12 @@ class StreamingXtreamParser {
     ) {
         val batch = ArrayList<VodEntity>(BATCH_SIZE)
         val cleanHost = serverUrl.trimEnd('/')
+        val encodedUsername = Uri.encode(username)
+        val encodedPassword = Uri.encode(password)
 
         JsonReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
             reader.isLenient = true
-            if (reader.peek() != JsonToken.BEGIN_ARRAY) return
+            check(reader.peek() == JsonToken.BEGIN_ARRAY) { "Xtream film yanıtı dizi değil" }
 
             reader.beginArray()
             while (reader.hasNext()) {
@@ -129,7 +134,7 @@ class StreamingXtreamParser {
                             profileId = profileId,
                             title = name,
                             categoryName = categoryMap[categoryId] ?: "Diğer",
-                            streamUrl = "$cleanHost/movie/$username/$password/$streamId.$ext",
+                            streamUrl = "$cleanHost/movie/$encodedUsername/$encodedPassword/$streamId.$ext",
                             posterUrl = posterUrl,
                             imdbRating = rating?.takeIf { it > 0f },
                             containerExtension = ext,
@@ -158,7 +163,7 @@ class StreamingXtreamParser {
 
         JsonReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
             reader.isLenient = true
-            if (reader.peek() != JsonToken.BEGIN_ARRAY) return
+            check(reader.peek() == JsonToken.BEGIN_ARRAY) { "Xtream dizi yanıtı dizi değil" }
 
             reader.beginArray()
             while (reader.hasNext()) {

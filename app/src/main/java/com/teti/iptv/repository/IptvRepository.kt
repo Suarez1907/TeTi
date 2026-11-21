@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
+import androidx.room.withTransaction
+import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.dao.ChannelDao
 import com.teti.iptv.data.local.dao.EpgDao
 import com.teti.iptv.data.local.dao.PlaylistDao
@@ -30,10 +32,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import retrofit2.Retrofit
 import java.io.InputStream
+import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,7 +56,8 @@ class IptvRepository @Inject constructor(
     private val xtreamParser: StreamingXtreamParser,
     private val xmltvParser: StreamingXmltvParser,
     private val okHttpClient: OkHttpClient,
-    private val json: Json
+    private val json: Json,
+    private val database: TeTiDatabase
 ) {
     private fun createXtreamApi(baseUrl: String): XtreamApiService {
         val cleanUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
@@ -176,8 +183,8 @@ class IptvRepository @Inject constructor(
     }
 
     private suspend fun syncXtream(profile: PlaylistProfileEntity, onProgress: ((String) -> Unit)?) {
-        val u = profile.username ?: return
-        val p = profile.password ?: return
+        val u = profile.username ?: error("Xtream kullanıcı adı eksik")
+        val p = profile.password ?: error("Xtream şifresi eksik")
         val api = createXtreamApi(profile.serverUrl)
 
         // 1. Kategoriler
@@ -199,89 +206,197 @@ class IptvRepository @Inject constructor(
 
         // 2. Canlı Kanallar
         onProgress?.invoke("Canlı kanallar indiriliyor...")
-        channelDao.deleteByProfile(profile.id)
-        runCatching {
-            val liveBody = api.getLiveStreams(u, p)
-            liveBody.byteStream().use { stream ->
-                xtreamParser.parseLiveStreams(stream, profile.id, profile.serverUrl, u, p, liveCatMap) { batch ->
-                    channelDao.insertAll(batch)
+        val liveFile = stagingFile("live")
+        val vodFile = stagingFile("vod")
+        val seriesFile = stagingFile("series")
+        try {
+            liveFile.bufferedWriter().use { writer ->
+                api.getLiveStreams(u, p).byteStream().use { stream ->
+                    xtreamParser.parseLiveStreams(stream, profile.id, profile.serverUrl, u, p, liveCatMap) { batch ->
+                        writer.write(json.encodeToString(batch))
+                        writer.newLine()
+                    }
                 }
             }
-        }
 
-        // 3. Filmler (VOD)
-        onProgress?.invoke("Filmler indiriliyor...")
-        vodDao.deleteByProfile(profile.id)
-        runCatching {
-            val vodBody = api.getVodStreams(u, p)
-            vodBody.byteStream().use { stream ->
-                xtreamParser.parseVodStreams(stream, profile.id, profile.serverUrl, u, p, vodCatMap) { batch ->
-                    vodDao.insertAll(batch)
+            // 3. Filmler (VOD)
+            onProgress?.invoke("Filmler indiriliyor...")
+            vodFile.bufferedWriter().use { writer ->
+                api.getVodStreams(u, p).byteStream().use { stream ->
+                    xtreamParser.parseVodStreams(stream, profile.id, profile.serverUrl, u, p, vodCatMap) { batch ->
+                        writer.write(json.encodeToString(batch))
+                        writer.newLine()
+                    }
                 }
             }
-        }
 
-        // 4. Diziler
-        onProgress?.invoke("Diziler indiriliyor...")
-        seriesDao.deleteByProfile(profile.id)
-        runCatching {
-            val seriesBody = api.getSeries(u, p)
-            seriesBody.byteStream().use { stream ->
-                xtreamParser.parseSeriesStreams(stream, profile.id, seriesCatMap) { batch ->
-                    seriesDao.insertAll(batch)
+            // 4. Diziler
+            onProgress?.invoke("Diziler indiriliyor...")
+            seriesFile.bufferedWriter().use { writer ->
+                api.getSeries(u, p).byteStream().use { stream ->
+                    xtreamParser.parseSeriesStreams(stream, profile.id, seriesCatMap) { batch ->
+                        writer.write(json.encodeToString(batch))
+                        writer.newLine()
+                    }
                 }
             }
+
+            val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
+            val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
+            val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
+            val ratedVod = vodDao.getRatedItems(profile.id)
+            val favoriteSeriesIds = seriesDao.getFavoriteIds(profile.id)
+            val ratedSeries = seriesDao.getRatedItems(profile.id)
+            database.withTransaction {
+                channelDao.deleteByProfile(profile.id)
+                replayStaged<ChannelEntity>(liveFile, channelDao::insertAll)
+                favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
+                hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
+                vodDao.deleteByProfile(profile.id)
+                replayStaged<VodEntity>(vodFile, vodDao::insertAll)
+                favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
+                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                seriesDao.deleteByProfile(profile.id)
+                replayStaged<SeriesEntity>(seriesFile, seriesDao::insertAll)
+                favoriteSeriesIds.forEach { seriesDao.setFavorite(it, true) }
+                ratedSeries.forEach { item -> item.imdbRating?.let { seriesDao.updateRating(item.seriesId, it) } }
+            }
+        } finally {
+            liveFile.delete()
+            vodFile.delete()
+            seriesFile.delete()
         }
     }
 
     private suspend fun syncM3uUrl(profile: PlaylistProfileEntity, onProgress: ((String) -> Unit)?) {
         onProgress?.invoke("M3U çalma listesi indiriliyor...")
         val request = Request.Builder().url(profile.serverUrl).build()
-        val response = okHttpClient.newCall(request).execute()
-        val stream = response.body?.byteStream() ?: return
-
-        channelDao.deleteByProfile(profile.id)
-        vodDao.deleteByProfile(profile.id)
-
-        stream.use {
-            m3uParser.parse(
-                it,
-                profile.id,
-                onChannelsBatch = { batch -> channelDao.insertAll(batch) },
-                onVodBatch = { batch -> vodDao.insertAll(batch) }
-            )
+        okHttpClient.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "M3U indirilemedi (HTTP ${response.code})" }
+            val channelFile = stagingFile("m3u-channels")
+            val vodFile = stagingFile("m3u-vod")
+            val body = response.body ?: error("M3U yanıtı boş")
+            try {
+                channelFile.bufferedWriter().use { channelWriter ->
+                    vodFile.bufferedWriter().use { vodWriter ->
+                        body.byteStream().use {
+                            m3uParser.parse(
+                                it,
+                                profile.id,
+                                onChannelsBatch = { batch ->
+                                    channelWriter.write(json.encodeToString(batch))
+                                    channelWriter.newLine()
+                                },
+                                onVodBatch = { batch ->
+                                    vodWriter.write(json.encodeToString(batch))
+                                    vodWriter.newLine()
+                                }
+                            )
+                        }
+                    }
+                }
+                val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
+                val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
+                val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
+                val ratedVod = vodDao.getRatedItems(profile.id)
+                database.withTransaction {
+                    channelDao.deleteByProfile(profile.id)
+                    replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
+                    favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
+                    hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
+                    vodDao.deleteByProfile(profile.id)
+                    replayStaged<VodEntity>(vodFile, vodDao::insertAll)
+                    favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
+                    ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                }
+            } finally {
+                channelFile.delete()
+                vodFile.delete()
+            }
         }
     }
 
     private suspend fun syncM3uLocal(profile: PlaylistProfileEntity, onProgress: ((String) -> Unit)?) {
         onProgress?.invoke("Yerel dosya okunuyor...")
         val uri = Uri.parse(profile.serverUrl)
-        val stream: InputStream = context.contentResolver.openInputStream(uri) ?: return
-
-        channelDao.deleteByProfile(profile.id)
-        vodDao.deleteByProfile(profile.id)
-
-        stream.use {
-            m3uParser.parse(
-                it,
-                profile.id,
-                onChannelsBatch = { batch -> channelDao.insertAll(batch) },
-                onVodBatch = { batch -> vodDao.insertAll(batch) }
-            )
+        val stream: InputStream = context.contentResolver.openInputStream(uri)
+            ?: error("Yerel M3U dosyası açılamadı")
+        val channelFile = stagingFile("local-m3u-channels")
+        val vodFile = stagingFile("local-m3u-vod")
+        try {
+            channelFile.bufferedWriter().use { channelWriter ->
+                vodFile.bufferedWriter().use { vodWriter ->
+                    stream.use {
+                        m3uParser.parse(
+                            it,
+                            profile.id,
+                            onChannelsBatch = { batch ->
+                                channelWriter.write(json.encodeToString(batch))
+                                channelWriter.newLine()
+                            },
+                            onVodBatch = { batch ->
+                                vodWriter.write(json.encodeToString(batch))
+                                vodWriter.newLine()
+                            }
+                        )
+                    }
+                }
+            }
+            val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
+            val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
+            val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
+            val ratedVod = vodDao.getRatedItems(profile.id)
+            database.withTransaction {
+                channelDao.deleteByProfile(profile.id)
+                replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
+                favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
+                hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
+                vodDao.deleteByProfile(profile.id)
+                replayStaged<VodEntity>(vodFile, vodDao::insertAll)
+                favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
+                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+            }
+        } finally {
+            channelFile.delete()
+            vodFile.delete()
         }
     }
 
     suspend fun syncEpg(epgUrl: String) = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder().url(epgUrl).build()
-            val response = okHttpClient.newCall(request).execute()
-            val stream = response.body?.byteStream() ?: return@runCatching
-
-            epgDao.clearAll()
-            stream.use {
-                xmltvParser.parse(it) { batch ->
-                    epgDao.insertAll(batch)
+        val request = Request.Builder().url(epgUrl).build()
+        okHttpClient.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "EPG indirilemedi (HTTP ${response.code})" }
+            val epgFile = stagingFile("epg")
+            val body = response.body ?: error("EPG yanıtı boş")
+            try {
+                epgFile.bufferedWriter().use { writer ->
+                    body.byteStream().use {
+                        xmltvParser.parse(it) { batch ->
+                            writer.write(json.encodeToString(batch))
+                            writer.newLine()
+                        }
+                    }
                 }
+                database.withTransaction {
+                    epgDao.clearAll()
+                    replayStaged<EpgProgramEntity>(epgFile, epgDao::insertAll)
+                }
+            } finally {
+                epgFile.delete()
+            }
+        }
+    }
+
+    private fun stagingFile(prefix: String): File =
+        File(context.cacheDir, "teti-$prefix-${UUID.randomUUID()}.jsonl")
+
+    private suspend inline fun <reified T> replayStaged(
+        file: File,
+        noinline insert: suspend (List<T>) -> Unit
+    ) {
+        file.bufferedReader().use { reader ->
+            reader.lineSequence().filter(String::isNotBlank).forEach { line ->
+                insert(json.decodeFromString<List<T>>(line))
             }
         }
     }
