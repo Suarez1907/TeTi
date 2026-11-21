@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.teti.iptv.data.local.entity.VodEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -46,6 +47,18 @@ interface VodDao {
     @Query("UPDATE vod_movies SET imdbRating = :rating WHERE streamId = :streamId")
     suspend fun updateRating(streamId: String, rating: Float)
 
+    @Query("SELECT streamId FROM vod_movies WHERE profileId = :profileId AND isFavorite = 1")
+    suspend fun getFavoriteIds(profileId: Long): List<String>
+
+    @Query("SELECT * FROM vod_movies WHERE profileId = :profileId AND imdbRating IS NOT NULL")
+    suspend fun getRatedItems(profileId: Long): List<VodEntity>
+
     @Query("DELETE FROM vod_movies WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: Long)
+
+    @Transaction
+    suspend fun replaceByProfile(profileId: Long, vodList: List<VodEntity>) {
+        deleteByProfile(profileId)
+        insertAll(vodList)
+    }
 }

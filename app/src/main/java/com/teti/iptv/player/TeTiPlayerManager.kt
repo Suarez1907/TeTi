@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -56,6 +59,9 @@ class TeTiPlayerManager @Inject constructor(
     private val _duration = MutableStateFlow(0L)
     val duration: StateFlow<Long> = _duration.asStateFlow()
 
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
     fun getPlayer(): ExoPlayer {
         return exoPlayer ?: initializePlayer()
     }
@@ -77,7 +83,7 @@ class TeTiPlayerManager @Inject constructor(
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setExtensionRendererMode(
                 if (useSoftwareDecoder) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-                else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
             )
         }
 
@@ -95,6 +101,14 @@ class TeTiPlayerManager @Inject constructor(
             .setTrackSelector(trackSelector!!)
             .build().also { player ->
                 exoPlayer = player
+                player.volume = 1f
+                player.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build(),
+                    true
+                )
                 player.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
                         _isPlaying.value = playing
@@ -109,16 +123,51 @@ class TeTiPlayerManager @Inject constructor(
                             _duration.value = player.duration.coerceAtLeast(0L)
                         }
                     }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        _currentPosition.value = newPosition.positionMs.coerceAtLeast(0L)
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        _playbackError.value = error.message
+                            ?: "Akış oynatılamadı (hata kodu: ${error.errorCode})"
+                    }
                 })
             }
     }
 
     fun play(url: String, startPositionMs: Long = 0L) {
+        if (url.isBlank()) {
+            _playbackError.value = "Akış adresi boş."
+            return
+        }
+        _playbackError.value = null
+        _currentPosition.value = 0L
+        _duration.value = 0L
         val player = getPlayer()
-        val mediaItem = MediaItem.fromUri(url)
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMimeType(inferMimeType(url))
+            .build()
         player.setMediaItem(mediaItem, startPositionMs)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    fun updatePosition() {
+        val player = exoPlayer ?: return
+        _currentPosition.value = player.currentPosition.coerceAtLeast(0L)
+        _duration.value = player.duration.coerceAtLeast(0L)
+    }
+
+    fun retry() {
+        _playbackError.value = null
+        exoPlayer?.prepare()
+        exoPlayer?.play()
     }
 
     fun seekTo(positionMs: Long) {
@@ -138,6 +187,7 @@ class TeTiPlayerManager @Inject constructor(
         if (trackInfo.groupIndex in groups.indices) {
             val group = groups[trackInfo.groupIndex]
             selector.parameters = selector.buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                 .setOverrideForType(
                     TrackSelectionOverride(group.mediaTrackGroup, trackInfo.trackIndex)
                 )
@@ -216,5 +266,21 @@ class TeTiPlayerManager @Inject constructor(
         exoPlayer = null
         trackSelector = null
         _isPlaying.value = false
+        _currentPosition.value = 0L
+        _duration.value = 0L
+        _audioTracks.value = emptyList()
+        _subtitleTracks.value = emptyList()
+        _playbackError.value = null
+    }
+
+    private fun inferMimeType(url: String): String? {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            path.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            path.startsWith("rtsp://") -> MimeTypes.APPLICATION_RTSP
+            path.endsWith(".ts") || path.endsWith(".mts") -> MimeTypes.VIDEO_MP2T
+            else -> null
+        }
     }
 }

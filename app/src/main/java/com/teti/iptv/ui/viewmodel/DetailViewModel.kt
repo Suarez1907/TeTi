@@ -1,9 +1,12 @@
 package com.teti.iptv.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.data.local.entity.VodEntity
+import com.teti.iptv.data.local.entity.PlaylistProfileEntity
+import com.teti.iptv.data.local.entity.PlaylistType
 import com.teti.iptv.domain.model.XtreamEpisode
 import com.teti.iptv.domain.model.XtreamSeason
 import com.teti.iptv.domain.model.XtreamSeriesInfoResponse
@@ -33,6 +36,7 @@ class DetailViewModel @Inject constructor(
 
     private val _selectedSeasonNumber = MutableStateFlow<Int>(1)
     val selectedSeasonNumber: StateFlow<Int> = _selectedSeasonNumber.asStateFlow()
+    private var seriesProfile: PlaylistProfileEntity? = null
 
     fun loadVod(streamId: String) {
         viewModelScope.launch {
@@ -56,6 +60,7 @@ class DetailViewModel @Inject constructor(
                 }
                 val activeProfile = repository.getActiveProfileOnce()
                 if (activeProfile != null) {
+                    seriesProfile = activeProfile
                     val info = repository.getSeriesInfo(activeProfile, seriesId)
                     _seriesInfo.value = info
                     val firstSeason = info?.seasons?.firstOrNull()?.seasonNumber ?: 1
@@ -72,5 +77,17 @@ class DetailViewModel @Inject constructor(
     fun getEpisodesForSeason(seasonNumber: Int): List<XtreamEpisode> {
         val info = _seriesInfo.value ?: return emptyList()
         return info.episodes?.get(seasonNumber.toString()) ?: emptyList()
+    }
+
+    fun getEpisodeStreamUrl(episode: XtreamEpisode): String? {
+        val profile = seriesProfile ?: return null
+        val username = profile.username ?: return null
+        val password = profile.password ?: return null
+        if (profile.type != PlaylistType.XTREAM) return null
+        val extension = episode.containerExtension
+            .trim()
+            .removePrefix(".")
+            .ifBlank { "mp4" }
+        return "${profile.serverUrl.trimEnd('/')}/series/${Uri.encode(username)}/${Uri.encode(password)}/${episode.id}.$extension"
     }
 }

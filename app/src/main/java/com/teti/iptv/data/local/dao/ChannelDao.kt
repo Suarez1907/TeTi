@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.teti.iptv.data.local.entity.ChannelEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -31,8 +32,23 @@ interface ChannelDao {
     @Query("UPDATE channels SET isFavorite = :isFavorite WHERE streamId = :streamId")
     suspend fun setFavorite(streamId: String, isFavorite: Boolean)
 
+    @Query("UPDATE channels SET isHidden = 1 WHERE streamId = :streamId")
+    suspend fun restoreHidden(streamId: String)
+
+    @Query("SELECT streamId FROM channels WHERE profileId = :profileId AND isFavorite = 1")
+    suspend fun getFavoriteIds(profileId: Long): List<String>
+
+    @Query("SELECT streamId FROM channels WHERE profileId = :profileId AND isHidden = 1")
+    suspend fun getHiddenIds(profileId: Long): List<String>
+
     @Query("DELETE FROM channels WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: Long)
+
+    @Transaction
+    suspend fun replaceByProfile(profileId: Long, channels: List<ChannelEntity>) {
+        deleteByProfile(profileId)
+        insertAll(channels)
+    }
 
     @Query("SELECT COUNT(*) FROM channels WHERE profileId = :profileId")
     suspend fun countByProfile(profileId: Long): Int

@@ -78,6 +78,7 @@ fun PlayerScreen(
     val subtitleTracks by viewModel.subtitleTracks.collectAsState()
     val currentPosition by viewModel.currentPosition.collectAsState()
     val duration by viewModel.duration.collectAsState()
+    val playbackError by viewModel.playbackError.collectAsState()
 
     var showControls by remember { mutableStateOf(true) }
     var showTrackDialog by remember { mutableStateOf(false) }
@@ -96,7 +97,6 @@ fun PlayerScreen(
         viewModel.startPlayback(
             url = streamUrl,
             contentId = contentId,
-            profileId = 1L,
             title = title,
             isLive = isLive
         )
@@ -121,6 +121,7 @@ fun PlayerScreen(
                 PlayerView(ctx).apply {
                     player = viewModel.getPlayer()
                     useController = false
+                    keepScreenOn = true
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -131,7 +132,7 @@ fun PlayerScreen(
         )
 
         // Overlay Kontroller
-        if (showControls) {
+        if (showControls && playbackError == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -207,9 +208,8 @@ fun PlayerScreen(
 
                 // Alt İlerleme Çubuğu (Canlı yayın harici)
                 if (!isLive) {
-                    val player = viewModel.getPlayer()
-                    val pos = player.currentPosition
-                    val dur = player.duration.coerceAtLeast(1L)
+                    val pos = currentPosition
+                    val dur = duration.coerceAtLeast(1L)
 
                     Column(
                         modifier = Modifier
@@ -236,6 +236,22 @@ fun PlayerScreen(
                                 inactiveTrackColor = Color.Gray
                             )
                         )
+                    }
+                }
+            }
+
+            if (playbackError != null) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(playbackError.orEmpty(), color = Color.White)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = viewModel::retry) {
+                        Text("Tekrar Dene")
                     }
                 }
             }

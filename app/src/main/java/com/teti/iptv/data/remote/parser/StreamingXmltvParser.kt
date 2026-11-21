@@ -98,6 +98,7 @@ class StreamingXmltvParser {
         return pushback
     }
 
+    @Synchronized
     private fun parseTime(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return 0L
         val clean = dateStr.trim()

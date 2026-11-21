@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.teti.iptv.data.local.entity.SeriesEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -43,6 +44,18 @@ interface SeriesDao {
     @Query("UPDATE vod_series SET imdbRating = :rating WHERE seriesId = :seriesId")
     suspend fun updateRating(seriesId: String, rating: Float)
 
+    @Query("SELECT seriesId FROM vod_series WHERE profileId = :profileId AND isFavorite = 1")
+    suspend fun getFavoriteIds(profileId: Long): List<String>
+
+    @Query("SELECT * FROM vod_series WHERE profileId = :profileId AND imdbRating IS NOT NULL")
+    suspend fun getRatedItems(profileId: Long): List<SeriesEntity>
+
     @Query("DELETE FROM vod_series WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: Long)
+
+    @Transaction
+    suspend fun replaceByProfile(profileId: Long, seriesList: List<SeriesEntity>) {
+        deleteByProfile(profileId)
+        insertAll(seriesList)
+    }
 }
