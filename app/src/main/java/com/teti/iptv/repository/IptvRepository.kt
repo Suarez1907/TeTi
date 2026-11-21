@@ -251,7 +251,7 @@ class IptvRepository @Inject constructor(
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(liveFile, channelDao::insertAll)
                 favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
-                hiddenChannelIds.forEach(channelDao::restoreHidden)
+                hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
@@ -303,7 +303,7 @@ class IptvRepository @Inject constructor(
                     channelDao.deleteByProfile(profile.id)
                     replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
                     favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
-                    hiddenChannelIds.forEach(channelDao::restoreHidden)
+                    hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
                     vodDao.deleteByProfile(profile.id)
                     replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                     favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
@@ -350,7 +350,7 @@ class IptvRepository @Inject constructor(
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
                 favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
-                hiddenChannelIds.forEach(channelDao::restoreHidden)
+                hiddenChannelIds.forEach { channelDao.restoreHidden(it) }
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
