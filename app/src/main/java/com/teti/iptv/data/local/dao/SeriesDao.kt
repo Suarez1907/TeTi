@@ -5,7 +5,9 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.teti.iptv.data.local.entity.SeriesEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -25,6 +27,15 @@ interface SeriesDao {
 
     @Query("SELECT DISTINCT categoryName FROM vod_series WHERE profileId = :profileId ORDER BY categoryName ASC")
     fun getCategories(profileId: Long): Flow<List<String>>
+
+    @Query("SELECT DISTINCT releaseYear FROM vod_series WHERE profileId = :profileId AND releaseYear IS NOT NULL ORDER BY releaseYear DESC")
+    fun getReleaseYears(profileId: Long): Flow<List<Int>>
+
+    @Query("SELECT * FROM vod_series WHERE profileId = :profileId ORDER BY lastModified DESC LIMIT :limit")
+    fun getRecentlyAdded(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>>
+
+    @RawQuery(observedEntities = [SeriesEntity::class])
+    fun getSeriesPagingRaw(query: SupportSQLiteQuery): PagingSource<Int, SeriesEntity>
 
     @Query("SELECT * FROM vod_series WHERE profileId = :profileId AND (title LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') LIMIT 100")
     fun searchSeries(profileId: Long, query: String): Flow<List<SeriesEntity>>

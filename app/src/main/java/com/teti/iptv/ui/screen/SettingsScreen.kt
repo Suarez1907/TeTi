@@ -55,8 +55,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.teti.iptv.data.local.entity.PlaylistProfileEntity
 import com.teti.iptv.data.local.entity.PlaylistType
 import com.teti.iptv.player.BufferProfile
+import com.teti.iptv.ui.components.ScreenHeading
+import com.teti.iptv.ui.components.tetiClickable
 import com.teti.iptv.ui.theme.DarkRed
 import com.teti.iptv.ui.theme.DarkSurface
+import com.teti.iptv.ui.theme.TeTiAmberDeep
+import com.teti.iptv.ui.theme.TeTiMuted
+import com.teti.iptv.ui.theme.TeTiText
 import com.teti.iptv.ui.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,9 +85,15 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(bottom = 24.dp)
     ) {
-        Text("Oynatma Listeleri", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        ScreenHeading(title = "Ayarlar", subtitle = "Profil, oynatıcı ve anahtarlar")
+        Text(
+            "Oynatma listeleri",
+            color = TeTiText,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
         Spacer(modifier = Modifier.height(10.dp))
 
         profiles.forEach { profile ->
@@ -90,10 +101,10 @@ fun SettingsScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { viewModel.selectProfile(profile.id) },
-                color = DarkSurface
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .tetiClickable(shape = RoundedCornerShape(14.dp)) { viewModel.selectProfile(profile.id) },
+                color = DarkSurface,
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -127,7 +138,10 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) {
             Button(
                 onClick = { showAddDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -150,7 +164,7 @@ fun SettingsScreen(
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White)
                     }
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Senkronize Et", color = Color.White)
+                    Text("Senkronize Et")
                 }
             }
         }
@@ -161,36 +175,52 @@ fun SettingsScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Oynatıcı Ayarları", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Oynatıcı",
+            color = TeTiText,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Tampon Profili
-        Text("Tampon (Buffer) Modu", color = Color.LightGray, fontSize = 14.sp)
+        Text(
+            "Tampon (buffer) modu",
+            color = TeTiMuted,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
         Spacer(modifier = Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp)
+        ) {
             BufferProfile.entries.forEach { p ->
                 val isSelected = p == bufferProfile
-                OutlinedButton(
+                Button(
                     onClick = { viewModel.setBufferProfile(p) },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isSelected) DarkRed else Color.Transparent
+                    modifier = Modifier.height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) DarkRed else DarkSurface,
+                        contentColor = if (isSelected) TeTiAmberDeep else TeTiText
                     ),
-                    shape = RoundedCornerShape(6.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text(p.title, color = Color.White, fontSize = 12.sp)
+                    Text(p.title, fontSize = 12.sp)
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text("Yazılımsal Çözücü (Software Decoder)", color = Color.White, fontSize = 14.sp)
-                Text("Donanım desteği olmayan ses/videolar için", color = Color.Gray, fontSize = 12.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Yazılımsal çözücü", color = TeTiText, style = MaterialTheme.typography.bodyLarge)
+                Text("Donanım desteği olmayan ses ve videolar için", color = TeTiMuted, style = MaterialTheme.typography.bodySmall)
             }
             Switch(
                 checked = useSoftwareDecoder,
@@ -200,7 +230,12 @@ fun SettingsScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Metadata & Rating API Anahtarları", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "Puan servisleri",
+            color = TeTiText,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
         Spacer(modifier = Modifier.height(10.dp))
 
         var omdbInput by remember(omdbApiKey) { mutableStateOf(omdbApiKey) }
@@ -211,7 +246,9 @@ fun SettingsScreen(
                 viewModel.setOmdbApiKey(it)
             },
             label = { Text("OMDb API Key") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             singleLine = true
         )
 
@@ -225,11 +262,13 @@ fun SettingsScreen(
                 viewModel.setTmdbApiKey(it)
             },
             label = { Text("TMDB API Key (v3 auth)") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(modifier = Modifier.height(24.dp))
     }
 
     if (showAddDialog) {
@@ -268,12 +307,20 @@ fun AddProfileDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { type = PlaylistType.XTREAM },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (type == PlaylistType.XTREAM) DarkRed else DarkSurface)
+                        modifier = Modifier.height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (type == PlaylistType.XTREAM) DarkRed else DarkSurface,
+                            contentColor = if (type == PlaylistType.XTREAM) TeTiAmberDeep else Color.White
+                        )
                     ) { Text("Xtream", fontSize = 12.sp) }
 
                     Button(
                         onClick = { type = PlaylistType.M3U_URL },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (type == PlaylistType.M3U_URL) DarkRed else DarkSurface)
+                        modifier = Modifier.height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (type == PlaylistType.M3U_URL) DarkRed else DarkSurface,
+                            contentColor = if (type == PlaylistType.M3U_URL) TeTiAmberDeep else Color.White
+                        )
                     ) { Text("M3U URL", fontSize = 12.sp) }
                 }
 
@@ -312,7 +359,7 @@ fun AddProfileDialog(
                         )
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = DarkRed)
+                colors = ButtonDefaults.buttonColors(containerColor = DarkRed, contentColor = TeTiAmberDeep)
             ) { Text("Kaydet") }
         },
         dismissButton = {

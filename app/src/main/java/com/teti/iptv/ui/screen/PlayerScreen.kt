@@ -8,7 +8,11 @@ import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
@@ -47,7 +51,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,6 +93,11 @@ fun PlayerScreen(
 
     var showControls by remember { mutableStateOf(true) }
     var showTrackDialog by remember { mutableStateOf(false) }
+    val playerFocus = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        runCatching { playerFocus.requestFocus() }
+    }
 
     // Tam ekranda yatay moda geç
     DisposableEffect(Unit) {
@@ -110,10 +126,61 @@ fun PlayerScreen(
         }
     }
 
+    fun seekBy(deltaMs: Long) {
+        val player = viewModel.getPlayer()
+        val upper = player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+        val target = (player.currentPosition + deltaMs).coerceIn(0L, upper)
+        viewModel.seekTo(target)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(playerFocus)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> {
+                        if (!showControls) {
+                            viewModel.togglePlayPause()
+                            showControls = true
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.MediaRewind -> {
+                        if (!isLive) seekBy(-10_000)
+                        showControls = true
+                        true
+                    }
+                    Key.MediaFastForward -> {
+                        if (!isLive) seekBy(10_000)
+                        showControls = true
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (showControls) return@onPreviewKeyEvent false
+                        if (!isLive) seekBy(-10_000)
+                        showControls = true
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        if (showControls) return@onPreviewKeyEvent false
+                        if (!isLive) seekBy(10_000)
+                        showControls = true
+                        true
+                    }
+                    Key.DirectionUp, Key.DirectionDown -> {
+                        if (showControls) return@onPreviewKeyEvent false
+                        showControls = true
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
             .clickable { showControls = !showControls }
     ) {
         AndroidView(
@@ -132,11 +199,27 @@ fun PlayerScreen(
         )
 
         // Overlay Kontroller
-        if (showControls && playbackError == null) {
+        if (playbackError != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(playbackError.orEmpty(), color = Color.White)
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = viewModel::retry) {
+                    Text("Tekrar Dene")
+                }
+                TextButton(onClick = onBack) { Text("Geri") }
+            }
+        } else if (showControls) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
             ) {
                 // Üst Bar
                 Row(
@@ -145,8 +228,8 @@ fun PlayerScreen(
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Geri", tint = Color.White)
+                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri", tint = Color.White)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -170,11 +253,8 @@ fun PlayerScreen(
                 ) {
                     if (!isLive) {
                         IconButton(
-                            onClick = {
-                                val newPos = (viewModel.getPlayer().currentPosition - 10000).coerceAtLeast(0)
-                                viewModel.seekTo(newPos)
-                            },
-                            modifier = Modifier.size(48.dp)
+                            onClick = { seekBy(-10_000) },
+                            modifier = Modifier.size(56.dp)
                         ) {
                             Icon(Icons.Default.Replay10, contentDescription = "10sn Geri", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
@@ -182,7 +262,7 @@ fun PlayerScreen(
 
                     IconButton(
                         onClick = { viewModel.togglePlayPause() },
-                        modifier = Modifier.size(64.dp)
+                        modifier = Modifier.size(72.dp)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -194,12 +274,8 @@ fun PlayerScreen(
 
                     if (!isLive) {
                         IconButton(
-                            onClick = {
-                                val p = viewModel.getPlayer()
-                                val newPos = (p.currentPosition + 10000).coerceAtMost(p.duration)
-                                viewModel.seekTo(newPos)
-                            },
-                            modifier = Modifier.size(48.dp)
+                            onClick = { seekBy(10_000) },
+                            modifier = Modifier.size(56.dp)
                         ) {
                             Icon(Icons.Default.Forward10, contentDescription = "10sn İleri", tint = Color.White, modifier = Modifier.size(36.dp))
                         }
@@ -236,22 +312,6 @@ fun PlayerScreen(
                                 inactiveTrackColor = Color.Gray
                             )
                         )
-                    }
-                }
-            }
-
-            if (playbackError != null) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(playbackError.orEmpty(), color = Color.White)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(onClick = viewModel::retry) {
-                        Text("Tekrar Dene")
                     }
                 }
             }
