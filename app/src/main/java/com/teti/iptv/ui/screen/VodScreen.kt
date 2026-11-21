@@ -1,5 +1,6 @@
 package com.teti.iptv.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +48,7 @@ import androidx.paging.compose.itemKey
 import coil3.compose.AsyncImage
 import com.teti.iptv.data.local.entity.VodEntity
 import com.teti.iptv.domain.catalog.CatalogSort
-import com.teti.iptv.ui.components.CatalogControlBar
+import com.teti.iptv.ui.components.CatalogHeaderActions
 import com.teti.iptv.ui.components.CategoryChipsRow
 import com.teti.iptv.ui.components.EmptyHint
 import com.teti.iptv.ui.components.PosterCard
@@ -56,9 +57,11 @@ import com.teti.iptv.ui.components.ScreenHeading
 import com.teti.iptv.ui.components.SectionTitle
 import com.teti.iptv.ui.components.tetiClickable
 import com.teti.iptv.ui.device.rememberDeviceProfile
-import com.teti.iptv.ui.theme.TeTiAmber
-import com.teti.iptv.ui.theme.TeTiAmberDeep
-import com.teti.iptv.ui.theme.TeTiInk
+import com.teti.iptv.ui.theme.TeTiOnWhite
+import com.teti.iptv.ui.theme.TeTiWhite
+import com.teti.iptv.ui.theme.TeTiBlack
+import com.teti.iptv.ui.theme.TeTiBorder
+import com.teti.iptv.ui.theme.TeTiGlass
 import com.teti.iptv.ui.theme.TeTiMuted
 import com.teti.iptv.ui.theme.TeTiText
 import com.teti.iptv.ui.viewmodel.VodViewModel
@@ -98,15 +101,13 @@ fun VodScreen(
 
         ScreenHeading(
             title = "Filmler",
-            subtitle = if (discover) "Keşfet ve tüm katalog" else "${sort.label()} · $selectedCategory"
-        )
-        CategoryChipsRow(
-            categories = categories,
-            selectedCategory = selectedCategory,
-            onSelectCategory = viewModel::selectCategory
-        )
-        if (device.useNavigationRail) {
-            CatalogControlBar(
+            subtitle = if (discover) "Keşfet ve tüm katalog" else listOfNotNull(
+                sort.label(),
+                selectedYear?.toString(),
+                selectedCategory
+            ).joinToString(" · ")
+        ) {
+            CatalogHeaderActions(
                 sort = sort,
                 onSortChange = viewModel::selectSort,
                 years = years,
@@ -114,6 +115,11 @@ fun VodScreen(
                 onYearChange = viewModel::selectYear
             )
         }
+        CategoryChipsRow(
+            categories = categories,
+            selectedCategory = selectedCategory,
+            onSelectCategory = viewModel::selectCategory
+        )
 
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -195,7 +201,7 @@ fun VodScreen(
                                 .fillMaxWidth()
                                 .height(180.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(TeTiInk)
+                                .background(TeTiGlass)
                         )
                     } else {
                         PosterCard(
@@ -216,15 +222,6 @@ fun VodScreen(
             }
         }
 
-        if (!device.useNavigationRail) {
-            CatalogControlBar(
-                sort = sort,
-                onSortChange = viewModel::selectSort,
-                years = years,
-                selectedYear = selectedYear,
-                onYearChange = viewModel::selectYear
-            )
-        }
     }
 }
 
@@ -238,8 +235,8 @@ private fun MovieHero(
         modifier = Modifier
             .fillMaxWidth()
             .height(300.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .tetiClickable(shape = RoundedCornerShape(20.dp), onClick = onInfo)
+            .clip(RoundedCornerShape(18.dp))
+            .tetiClickable(shape = RoundedCornerShape(18.dp), onClick = onInfo)
     ) {
         AsyncImage(
             model = movie.backdropUrl ?: movie.posterUrl,
@@ -252,7 +249,7 @@ private fun MovieHero(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f), TeTiInk)
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f), TeTiBlack)
                     )
                 )
         )
@@ -280,7 +277,7 @@ private fun MovieHero(
                 Button(
                     onClick = onPlay,
                     modifier = Modifier.height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TeTiAmber, contentColor = TeTiAmberDeep),
+                    colors = ButtonDefaults.buttonColors(containerColor = TeTiWhite, contentColor = TeTiOnWhite),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -290,7 +287,9 @@ private fun MovieHero(
                 OutlinedButton(
                     onClick = onInfo,
                     modifier = Modifier.height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, TeTiBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = TeTiGlass.copy(alpha = 0.7f))
                 ) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = TeTiText)
                     Spacer(modifier = Modifier.width(4.dp))

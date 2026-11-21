@@ -9,10 +9,15 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.teti.iptv.domain.catalog.CatalogQuery
 import com.teti.iptv.domain.catalog.CatalogSort
+import com.teti.iptv.domain.epg.EpgOffset
+import com.teti.iptv.worker.BackgroundScheduler
+import kotlinx.coroutines.flow.map
 import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.dao.ChannelDao
 import com.teti.iptv.data.local.dao.EpgDao
+import com.teti.iptv.data.local.AppPreferences
 import com.teti.iptv.data.local.dao.PlaylistDao
+import com.teti.iptv.data.local.dao.TmdbMetadataDao
 import com.teti.iptv.data.local.dao.SeriesDao
 import com.teti.iptv.data.local.dao.VodDao
 import com.teti.iptv.data.local.dao.WatchHistoryDao
@@ -60,7 +65,10 @@ class IptvRepository @Inject constructor(
     private val xmltvParser: StreamingXmltvParser,
     private val okHttpClient: OkHttpClient,
     private val json: Json,
-    private val database: TeTiDatabase
+    private val database: TeTiDatabase,
+    private val tmdbMetadataDao: TmdbMetadataDao,
+    private val preferences: AppPreferences,
+    private val scheduler: BackgroundScheduler
 ) {
     private fun createXtreamApi(baseUrl: String): XtreamApiService {
         val cleanUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
@@ -97,6 +105,8 @@ class IptvRepository @Inject constructor(
             }
         }.flow
     }
+
+    suspend fun getChannelById(streamId: String): ChannelEntity? = channelDao.getById(streamId)
 
     fun getChannelCategories(profileId: Long): Flow<List<String>> = channelDao.getCategories(profileId)
     suspend fun toggleChannelFavorite(channel: ChannelEntity) {
@@ -176,11 +186,53 @@ class IptvRepository @Inject constructor(
     fun searchSeries(profileId: Long, query: String): Flow<List<SeriesEntity>> = seriesDao.searchSeries(profileId, query)
 
     // --- EPG ---
-    fun getCurrentEpg(epgChannelId: String): Flow<EpgProgramEntity?> =
-        epgDao.getCurrentProgram(epgChannelId, System.currentTimeMillis())
+    // Saatler ham XMLTV değeriyle saklanır; kullanıcının saat kaydırması (EPG Offset)
+    // sorguda ve gösterimde uygulanır, böylece ayar değişince yeniden indirme gerekmez.
+    private fun epgShiftMs(): Long = EpgOffset.toMillis(preferences.epgOffsetHours.value)
 
-    fun getProgramsForChannel(epgChannelId: String, fromMs: Long, toMs: Long): Flow<List<EpgProgramEntity>> =
-        epgDao.getProgramsForChannel(epgChannelId, fromMs, toMs)
+    private fun EpgProgramEntity.shifted(shift: Long): EpgProgramEntity =
+        if (shift == 0L) this else copy(startTimeMs = startTimeMs + shift, endTimeMs = endTimeMs + shift)
+
+    fun getCurrentEpg(epgChannelId: String): Flow<EpgProgramEntity?> {
+        val shift = epgShiftMs()
+        return epgDao.getCurrentProgram(epgChannelId, System.currentTimeMillis() - shift)
+            .map { it?.shifted(shift) }
+    }
+
+    /** Şu an yayındaki program (kaydırma uygulanmış). */
+    suspend fun getNowPlaying(epgChannelId: String, nowMs: Long = System.currentTimeMillis()): EpgProgramEntity? {
+        val shift = epgShiftMs()
+        return epgDao.getCurrentProgramOnce(epgChannelId, nowMs - shift)?.shifted(shift)
+    }
+
+    fun getProgramsForChannel(epgChannelId: String, fromMs: Long, toMs: Long): Flow<List<EpgProgramEntity>> {
+        val shift = epgShiftMs()
+        return epgDao.getProgramsForChannel(epgChannelId, fromMs - shift, toMs - shift)
+            .map { list -> list.map { it.shifted(shift) } }
+    }
+
+    /**
+     * Kullanılacak XMLTV adresi: Ayarlar'daki özel URL > profilin EPG URL'si >
+     * (otomatik açıksa) Xtream sunucusunun xmltv.php adresi.
+     */
+    fun resolveEpgUrl(profile: PlaylistProfileEntity): String? {
+        preferences.epgCustomUrl.value.takeIf { it.isNotBlank() }?.let { return it }
+        profile.epgUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        if (preferences.epgAutoXtream.value && profile.type == PlaylistType.XTREAM) {
+            val u = profile.username ?: return null
+            val p = profile.password ?: return null
+            return "${profile.serverUrl.trimEnd('/')}/xmltv.php?username=${Uri.encode(u)}&password=${Uri.encode(p)}"
+        }
+        return null
+    }
+
+    /** Etkin profilin EPG'sini indirir. @return indirilen URL yoksa false. */
+    suspend fun syncEpgForActiveProfile(): Boolean = withContext(Dispatchers.IO) {
+        val profile = playlistDao.getActiveProfileOnce() ?: return@withContext false
+        val url = resolveEpgUrl(profile) ?: return@withContext false
+        syncEpg(url)
+        true
+    }
 
     // --- İZLEME GEÇMİŞİ ---
     fun getRecentHistory(profileId: Long): Flow<List<WatchHistoryEntity>> = watchHistoryDao.getRecentHistory(profileId)
@@ -195,11 +247,14 @@ class IptvRepository @Inject constructor(
             PlaylistType.M3U_URL -> syncM3uUrl(profile, onProgress)
             PlaylistType.M3U_LOCAL -> syncM3uLocal(profile, onProgress)
         }
-        profile.epgUrl?.takeIf { it.isNotBlank() }?.let { epgUrl ->
+        resolveEpgUrl(profile)?.let { epgUrl ->
             onProgress?.invoke("EPG senkronize ediliyor...")
-            syncEpg(epgUrl)
+            runCatching { syncEpg(epgUrl) }
+                .onFailure { onProgress?.invoke("EPG alınamadı: ${it.message}") }
         }
         playlistDao.updateLastSynced(profileId, System.currentTimeMillis())
+        // Yeni gelen filmler/diziler için TMDB puan ve özetlerini arka planda doldur.
+        scheduler.enqueueTmdbEnrich(restart = false)
     }
 
     private suspend fun syncXtream(profile: PlaylistProfileEntity, onProgress: ((String) -> Unit)?) {
@@ -264,9 +319,7 @@ class IptvRepository @Inject constructor(
             val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
             val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
             val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-            val ratedVod = vodDao.getRatedItems(profile.id)
             val favoriteSeriesIds = seriesDao.getFavoriteIds(profile.id)
-            val ratedSeries = seriesDao.getRatedItems(profile.id)
             database.withTransaction {
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(liveFile, channelDao::insertAll)
@@ -275,11 +328,11 @@ class IptvRepository @Inject constructor(
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                tmdbMetadataDao.applyMovieRatings(profile.id)
                 seriesDao.deleteByProfile(profile.id)
                 replayStaged<SeriesEntity>(seriesFile, seriesDao::insertAll)
                 favoriteSeriesIds.forEach { seriesDao.setFavorite(it, true) }
-                ratedSeries.forEach { item -> item.imdbRating?.let { seriesDao.updateRating(item.seriesId, it) } }
+                tmdbMetadataDao.applySeriesRatings(profile.id)
             }
         } finally {
             liveFile.delete()
@@ -318,8 +371,7 @@ class IptvRepository @Inject constructor(
                 val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
                 val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
                 val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-                val ratedVod = vodDao.getRatedItems(profile.id)
-                database.withTransaction {
+                    database.withTransaction {
                     channelDao.deleteByProfile(profile.id)
                     replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
                     favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
@@ -327,7 +379,7 @@ class IptvRepository @Inject constructor(
                     vodDao.deleteByProfile(profile.id)
                     replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                     favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                    ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                    tmdbMetadataDao.applyMovieRatings(profile.id)
                 }
             } finally {
                 channelFile.delete()
@@ -365,7 +417,6 @@ class IptvRepository @Inject constructor(
             val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
             val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
             val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-            val ratedVod = vodDao.getRatedItems(profile.id)
             database.withTransaction {
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
@@ -374,7 +425,7 @@ class IptvRepository @Inject constructor(
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                tmdbMetadataDao.applyMovieRatings(profile.id)
             }
         } finally {
             channelFile.delete()
@@ -401,6 +452,7 @@ class IptvRepository @Inject constructor(
                     epgDao.clearAll()
                     replayStaged<EpgProgramEntity>(epgFile, epgDao::insertAll)
                 }
+                preferences.setEpgLastUpdated(System.currentTimeMillis())
             } finally {
                 epgFile.delete()
             }

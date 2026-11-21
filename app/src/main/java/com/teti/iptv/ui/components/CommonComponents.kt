@@ -1,6 +1,8 @@
 package com.teti.iptv.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,16 +13,18 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,19 +34,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.teti.iptv.domain.catalog.CatalogSort
-import com.teti.iptv.ui.theme.DarkGold
-import com.teti.iptv.ui.theme.DarkSurface
-import com.teti.iptv.ui.theme.TeTiAmber
+import com.teti.iptv.ui.theme.TeTiBorder
+import com.teti.iptv.ui.theme.TeTiGlass
+import com.teti.iptv.ui.theme.TeTiGold
 import com.teti.iptv.ui.theme.TeTiMuted
-import com.teti.iptv.ui.theme.TeTiSurfaceHigh
+import com.teti.iptv.ui.theme.TeTiOnWhite
+import com.teti.iptv.ui.theme.TeTiRed
 import com.teti.iptv.ui.theme.TeTiText
+import com.teti.iptv.ui.theme.TeTiWhite
 import java.util.Locale
 
+/** İnce kenarlıklı, minimal kategori chip'leri (pill). Seçili olan beyaz dolgulu. */
 @Composable
 fun CategoryChipsRow(
     categories: List<String>,
@@ -54,30 +64,109 @@ fun CategoryChipsRow(
         categories.filter { it != CatalogSort.CATEGORY_ALL && it != CatalogSort.CATEGORY_FAVORITES }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         items(allCats, key = { it }) { cat ->
-            val isSelected = (selectedCategory ?: CatalogSort.CATEGORY_ALL) == cat
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelectCategory(cat) },
-                label = {
-                    Text(
-                        cat,
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = TeTiAmber,
-                    selectedLabelColor = Color(0xFF1A1006),
-                    containerColor = TeTiSurfaceHigh,
-                    labelColor = TeTiText
-                ),
-                shape = RoundedCornerShape(20.dp)
+            PillChip(
+                text = cat,
+                selected = (selectedCategory ?: CatalogSort.CATEGORY_ALL) == cat,
+                onClick = { onSelectCategory(cat) }
             )
         }
+    }
+}
+
+@Composable
+fun PillChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        modifier = modifier
+            .heightIn(min = 36.dp)
+            .tetiClickable(shape = shape, minSize = 36.dp, onClick = onClick)
+            .background(if (selected) TeTiWhite else Color.Transparent, shape)
+            .border(1.dp, if (selected) TeTiWhite else TeTiBorder, shape)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (selected) TeTiOnWhite else TeTiText,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+        )
+    }
+}
+
+/** Cam efektli yüzey: koyu yarı opak dolgu + ince kenarlık. */
+@Composable
+fun GlassSurface(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(18.dp),
+    alpha: Float = 1f,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        color = TeTiGlass.copy(alpha = alpha),
+        shape = shape,
+        border = BorderStroke(1.dp, TeTiBorder),
+        content = content
+    )
+}
+
+/** Beyaz zemin + siyah metin ana aksiyon (Netflix / Apple TV+ standardı). */
+@Composable
+fun PrimaryActionButton(
+    text: String,
+    icon: ImageVector?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    height: Dp = 52.dp
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(height),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = TeTiWhite,
+            contentColor = TeTiOnWhite,
+            disabledContainerColor = TeTiWhite.copy(alpha = 0.4f),
+            disabledContentColor = TeTiOnWhite.copy(alpha = 0.6f)
+        ),
+        contentPadding = PaddingValues(horizontal = 18.dp)
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(text, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+/** Cam efektli kare ikon butonu (favori, sıralama vb.). */
+@Composable
+fun GlassIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = TeTiText,
+    size: Dp = 52.dp,
+    active: Boolean = false
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = modifier
+            .size(size)
+            .tetiClickable(shape = shape, minSize = size, onClick = onClick)
+            .background(if (active) TeTiWhite.copy(alpha = 0.12f) else TeTiGlass, shape)
+            .border(1.dp, TeTiBorder, shape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -99,15 +188,47 @@ fun RatingBadge(
             Icon(
                 imageVector = Icons.Default.Star,
                 contentDescription = null,
-                tint = DarkGold,
-                modifier = Modifier.size(14.dp)
+                tint = TeTiGold,
+                modifier = Modifier.size(13.dp)
             )
             Text(
-                text = String.format(Locale.US, "%.1f", rating),
+                text = formatRating(rating),
                 color = Color.White,
                 style = MaterialTheme.typography.labelMedium
             )
         }
+    }
+}
+
+fun formatRating(rating: Float): String = String.format(Locale.US, "%.1f", rating)
+
+/** Canlı yayın göstergesi (kırmızı nokta). */
+@Composable
+fun LiveDot(modifier: Modifier = Modifier, size: Dp = 8.dp) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(TeTiRed)
+    )
+}
+
+/** İnce kırmızı ilerleme çubuğu (EPG ve izleme ilerlemesi). */
+@Composable
+fun ThinProgress(fraction: Float, modifier: Modifier = Modifier, height: Dp = 3.dp) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(50))
+            .background(TeTiBorder)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(height)
+                .background(TeTiRed)
+        )
     }
 }
 
@@ -122,15 +243,16 @@ fun PosterCard(
 ) {
     Column(
         modifier = modifier
-            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier.width(132.dp))
-            .tetiClickable(shape = RoundedCornerShape(14.dp), onClick = onClick)
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier.width(128.dp))
+            .tetiClickable(shape = RoundedCornerShape(12.dp), onClick = onClick)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(DarkSurface)
+                .clip(RoundedCornerShape(12.dp))
+                .background(TeTiGlass)
+                .border(1.dp, TeTiBorder, RoundedCornerShape(12.dp))
         ) {
             if (!posterUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -163,7 +285,7 @@ fun PosterCard(
             style = MaterialTheme.typography.labelLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
         )
     }
 }

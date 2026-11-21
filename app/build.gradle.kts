@@ -15,8 +15,16 @@ android {
         applicationId = "com.teti.iptv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.1.0"
+
+        // TMDB kimlik bilgileri. Kullanıcı Ayarlar'dan kendi anahtarını girerse o kullanılır.
+        // CI veya yerel derlemede TETI_TMDB_API_KEY / TETI_TMDB_READ_TOKEN ile değiştirilebilir.
+        val tmdbApiKey = System.getenv("TETI_TMDB_API_KEY") ?: "718b53dc3d48cedcf2ae81d8bed699a0"
+        val tmdbReadToken = System.getenv("TETI_TMDB_READ_TOKEN")
+            ?: "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3MThiNTNkYzNkNDhjZWRjZjJhZTgxZDhiZWQ2OTlhMCIsIm5iZiI6MTc5NTI1Nzk3NS45NDksInN1YiI6IjZiMDE3Njc3MGZkNGU3ZjNhYzhmOGQ5ZiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.-40fvsAcovHRYUiCNYzCaSFBrAM66P7NtydgblsM2KM"
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
+        buildConfigField("String", "TMDB_READ_TOKEN", "\"$tmdbReadToken\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,6 +63,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

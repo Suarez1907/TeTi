@@ -53,7 +53,7 @@ interface VodDao {
     suspend fun setFavorite(streamId: String, isFavorite: Boolean)
 
     @Query("UPDATE vod_movies SET imdbRating = :rating WHERE streamId = :streamId")
-    suspend fun updateRating(streamId: String, rating: Float)
+    suspend fun updateRating(streamId: String, rating: Float?)
 
     @Query("SELECT streamId FROM vod_movies WHERE profileId = :profileId AND isFavorite = 1")
     suspend fun getFavoriteIds(profileId: Long): List<String>

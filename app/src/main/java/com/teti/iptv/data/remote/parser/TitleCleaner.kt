@@ -22,13 +22,13 @@ object TitleCleaner {
         val yearMatch = YEAR_REGEX.find(text)
         val year = yearMatch?.groupValues?.get(1)?.toIntOrNull()
 
-        // 3. Remove quality and codec tags
-        text = text.replace(QUALITY_TAGS_REGEX, " ")
-
-        // 4. If year was found, truncate or clean it from title
+        // 3. Remove the year using the range found in step 2, before other edits shift the text
         if (yearMatch != null) {
             text = text.removeRange(yearMatch.range)
         }
+
+        // 4. Remove quality and codec tags
+        text = text.replace(QUALITY_TAGS_REGEX, " ")
 
         // 5. Clean punctuation and excess spaces
         text = text.replace(CLEANUP_CHARS_REGEX, " ")

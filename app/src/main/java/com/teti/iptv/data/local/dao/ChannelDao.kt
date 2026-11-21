@@ -26,6 +26,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE profileId = :profileId AND (name LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') AND isHidden = 0 LIMIT 100")
     fun searchChannels(profileId: Long, query: String): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE streamId = :streamId LIMIT 1")
+    suspend fun getById(streamId: String): ChannelEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(channels: List<ChannelEntity>)
 

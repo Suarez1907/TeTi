@@ -45,7 +45,7 @@ import com.teti.iptv.ui.components.ScreenHeading
 import com.teti.iptv.ui.components.SectionTitle
 import com.teti.iptv.ui.components.tetiClickable
 import com.teti.iptv.ui.theme.TeTiMuted
-import com.teti.iptv.ui.theme.TeTiSurface
+import com.teti.iptv.ui.theme.TeTiGlass
 import com.teti.iptv.ui.theme.TeTiText
 import com.teti.iptv.ui.viewmodel.SearchViewModel
 
@@ -83,8 +83,8 @@ fun SearchScreen(
             shape = RoundedCornerShape(16.dp),
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = TeTiText),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = TeTiSurface,
-                unfocusedContainerColor = TeTiSurface,
+                focusedContainerColor = TeTiGlass,
+                unfocusedContainerColor = TeTiGlass,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = Color.Transparent,
                 cursorColor = MaterialTheme.colorScheme.primary
@@ -115,7 +115,7 @@ fun SearchScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
                                 .tetiClickable(shape = RoundedCornerShape(14.dp)) { onPlayChannel(ch) }
-                                .background(TeTiSurface)
+                                .background(TeTiGlass)
                                 .padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

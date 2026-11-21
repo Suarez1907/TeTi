@@ -40,7 +40,7 @@ import androidx.paging.compose.itemKey
 import coil3.compose.AsyncImage
 import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.domain.catalog.CatalogSort
-import com.teti.iptv.ui.components.CatalogControlBar
+import com.teti.iptv.ui.components.CatalogHeaderActions
 import com.teti.iptv.ui.components.CategoryChipsRow
 import com.teti.iptv.ui.components.EmptyHint
 import com.teti.iptv.ui.components.PosterCard
@@ -49,9 +49,10 @@ import com.teti.iptv.ui.components.ScreenHeading
 import com.teti.iptv.ui.components.SectionTitle
 import com.teti.iptv.ui.components.tetiClickable
 import com.teti.iptv.ui.device.rememberDeviceProfile
-import com.teti.iptv.ui.theme.TeTiAmber
-import com.teti.iptv.ui.theme.TeTiAmberDeep
-import com.teti.iptv.ui.theme.TeTiInk
+import com.teti.iptv.ui.theme.TeTiOnWhite
+import com.teti.iptv.ui.theme.TeTiWhite
+import com.teti.iptv.ui.theme.TeTiBlack
+import com.teti.iptv.ui.theme.TeTiGlass
 import com.teti.iptv.ui.theme.TeTiMuted
 import com.teti.iptv.ui.viewmodel.SeriesViewModel
 
@@ -89,15 +90,13 @@ fun SeriesScreen(
 
         ScreenHeading(
             title = "Diziler",
-            subtitle = if (discover) "Keşfet ve tüm katalog" else "${sort.label()} · $selectedCategory"
-        )
-        CategoryChipsRow(
-            categories = categories,
-            selectedCategory = selectedCategory,
-            onSelectCategory = viewModel::selectCategory
-        )
-        if (device.useNavigationRail) {
-            CatalogControlBar(
+            subtitle = if (discover) "Keşfet ve tüm katalog" else listOfNotNull(
+                sort.label(),
+                selectedYear?.toString(),
+                selectedCategory
+            ).joinToString(" · ")
+        ) {
+            CatalogHeaderActions(
                 sort = sort,
                 onSortChange = viewModel::selectSort,
                 years = years,
@@ -105,6 +104,11 @@ fun SeriesScreen(
                 onYearChange = viewModel::selectYear
             )
         }
+        CategoryChipsRow(
+            categories = categories,
+            selectedCategory = selectedCategory,
+            onSelectCategory = viewModel::selectCategory
+        )
 
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -178,7 +182,7 @@ fun SeriesScreen(
                                 .fillMaxWidth()
                                 .height(180.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(TeTiInk)
+                                .background(TeTiGlass)
                         )
                     } else {
                         PosterCard(
@@ -199,15 +203,6 @@ fun SeriesScreen(
             }
         }
 
-        if (!device.useNavigationRail) {
-            CatalogControlBar(
-                sort = sort,
-                onSortChange = viewModel::selectSort,
-                years = years,
-                selectedYear = selectedYear,
-                onYearChange = viewModel::selectYear
-            )
-        }
     }
 }
 
@@ -217,8 +212,8 @@ private fun SeriesHero(series: SeriesEntity, onOpen: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(280.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .tetiClickable(shape = RoundedCornerShape(20.dp), onClick = onOpen)
+            .clip(RoundedCornerShape(18.dp))
+            .tetiClickable(shape = RoundedCornerShape(18.dp), onClick = onOpen)
     ) {
         AsyncImage(
             model = series.backdropUrl ?: series.posterUrl,
@@ -231,7 +226,7 @@ private fun SeriesHero(series: SeriesEntity, onOpen: () -> Unit) {
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.2f), TeTiInk)
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.2f), TeTiBlack)
                     )
                 )
         )
@@ -255,7 +250,7 @@ private fun SeriesHero(series: SeriesEntity, onOpen: () -> Unit) {
             Button(
                 onClick = onOpen,
                 modifier = Modifier.height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = TeTiAmber, contentColor = TeTiAmberDeep),
+                colors = ButtonDefaults.buttonColors(containerColor = TeTiWhite, contentColor = TeTiOnWhite),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text("İncele", style = MaterialTheme.typography.labelLarge)

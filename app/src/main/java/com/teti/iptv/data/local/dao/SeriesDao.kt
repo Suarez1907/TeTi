@@ -53,7 +53,7 @@ interface SeriesDao {
     suspend fun setFavorite(seriesId: String, isFavorite: Boolean)
 
     @Query("UPDATE vod_series SET imdbRating = :rating WHERE seriesId = :seriesId")
-    suspend fun updateRating(seriesId: String, rating: Float)
+    suspend fun updateRating(seriesId: String, rating: Float?)
 
     @Query("SELECT seriesId FROM vod_series WHERE profileId = :profileId AND isFavorite = 1")
     suspend fun getFavoriteIds(profileId: Long): List<String>

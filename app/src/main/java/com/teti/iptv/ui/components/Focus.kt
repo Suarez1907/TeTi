@@ -14,20 +14,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.teti.iptv.ui.theme.TeTiSignal
+import com.teti.iptv.ui.theme.TeTiWhite
 
+/** Dokunma ve D-pad için tıklanabilir alan: odaklanınca beyaz çerçeve çizer. */
 fun Modifier.tetiClickable(
     shape: Shape = RoundedCornerShape(12.dp),
+    minSize: Dp = 48.dp,
     onClick: () -> Unit
 ): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     this
-        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+        .defaultMinSize(minWidth = minSize, minHeight = minSize)
         .onFocusChanged { focused = it.isFocused }
         .border(
             width = if (focused) 2.dp else 0.dp,
-            color = if (focused) TeTiSignal else Color.Transparent,
+            color = if (focused) TeTiWhite else Color.Transparent,
             shape = shape
         )
         .clip(shape)

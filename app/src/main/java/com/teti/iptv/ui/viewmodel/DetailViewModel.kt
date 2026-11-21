@@ -3,22 +3,31 @@ package com.teti.iptv.ui.viewmodel
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.teti.iptv.data.local.entity.SeriesEntity
-import com.teti.iptv.data.local.entity.VodEntity
 import com.teti.iptv.data.local.entity.PlaylistProfileEntity
 import com.teti.iptv.data.local.entity.PlaylistType
+import com.teti.iptv.data.local.entity.SeriesEntity
+import com.teti.iptv.data.local.entity.TmdbMetadataEntity
+import com.teti.iptv.data.local.entity.VodEntity
 import com.teti.iptv.domain.model.XtreamEpisode
-import com.teti.iptv.domain.model.XtreamSeason
 import com.teti.iptv.domain.model.XtreamSeriesInfoResponse
 import com.teti.iptv.repository.IptvRepository
 import com.teti.iptv.repository.RatingRepository
+import com.teti.iptv.repository.TmdbAuthException
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val repository: IptvRepository,
@@ -27,14 +36,28 @@ class DetailViewModel @Inject constructor(
 
     enum class DetailStatus { Loading, Ready, Missing }
 
-    private val _vod = MutableStateFlow<VodEntity?>(null)
-    val vod: StateFlow<VodEntity?> = _vod.asStateFlow()
+    private val vodId = MutableStateFlow<String?>(null)
+    private val seriesId = MutableStateFlow<String?>(null)
+
+    /** Favori değişince ekran anında güncellensin diye Room akışı izlenir. */
+    val vod: StateFlow<VodEntity?> = vodId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else repository.getVodByIdFlow(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val vodMeta: StateFlow<TmdbMetadataEntity?> = vodId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else ratingRepository.observeMovie(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _vodStatus = MutableStateFlow(DetailStatus.Loading)
     val vodStatus: StateFlow<DetailStatus> = _vodStatus.asStateFlow()
 
-    private val _series = MutableStateFlow<SeriesEntity?>(null)
-    val series: StateFlow<SeriesEntity?> = _series.asStateFlow()
+    val series: StateFlow<SeriesEntity?> = seriesId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else repository.getSeriesByIdFlow(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val seriesMeta: StateFlow<TmdbMetadataEntity?> = seriesId.flatMapLatest { id ->
+        if (id == null) flowOf(null) else ratingRepository.observeSeries(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _seriesStatus = MutableStateFlow(DetailStatus.Loading)
     val seriesStatus: StateFlow<DetailStatus> = _seriesStatus.asStateFlow()
@@ -42,48 +65,80 @@ class DetailViewModel @Inject constructor(
     private val _seriesInfo = MutableStateFlow<XtreamSeriesInfoResponse?>(null)
     val seriesInfo: StateFlow<XtreamSeriesInfoResponse?> = _seriesInfo.asStateFlow()
 
-    private val _selectedSeasonNumber = MutableStateFlow<Int>(1)
+    private val _selectedSeasonNumber = MutableStateFlow(1)
     val selectedSeasonNumber: StateFlow<Int> = _selectedSeasonNumber.asStateFlow()
+
+    private val _metaLoading = MutableStateFlow(false)
+    val metaLoading: StateFlow<Boolean> = _metaLoading.asStateFlow()
+
     private var seriesProfile: PlaylistProfileEntity? = null
 
     fun loadVod(streamId: String) {
+        if (vodId.value == streamId) return
+        vodId.value = streamId
         viewModelScope.launch {
             _vodStatus.value = DetailStatus.Loading
             val item = repository.getVodById(streamId)
-            _vod.value = item
             _vodStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
-            if (item != null && item.imdbRating == null) {
-                ratingRepository.enrichVodRating(item.streamId, item.title)
-                _vod.value = repository.getVodById(streamId)
-            }
+            if (item != null) loadMeta { ratingRepository.ensureMovieDetails(item.streamId, item.title) }
         }
     }
 
-    fun loadSeries(seriesId: String) {
+    fun loadSeries(id: String) {
+        if (seriesId.value == id) return
+        seriesId.value = id
         viewModelScope.launch {
             _seriesStatus.value = DetailStatus.Loading
-            val item = repository.getSeriesById(seriesId)
-            _series.value = item
+            val item = repository.getSeriesById(id)
             _seriesStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
-            if (item != null) {
-                if (item.imdbRating == null) {
-                    ratingRepository.enrichSeriesRating(item.seriesId, item.title)
-                    _series.value = repository.getSeriesById(seriesId)
-                }
-                val activeProfile = repository.getActiveProfileOnce()
-                if (activeProfile != null) {
-                    seriesProfile = activeProfile
-                    val info = repository.getSeriesInfo(activeProfile, seriesId)
-                    _seriesInfo.value = info
-                    val firstSeason = info?.seasons?.firstOrNull()?.seasonNumber ?: 1
-                    _selectedSeasonNumber.value = firstSeason
-                }
-            }
+            if (item == null) return@launch
+            launch { loadMeta { ratingRepository.ensureSeriesDetails(item.seriesId, item.title) } }
+            val activeProfile = repository.getActiveProfileOnce() ?: return@launch
+            seriesProfile = activeProfile
+            val info = repository.getSeriesInfo(activeProfile, id)
+            _seriesInfo.value = info
+            _selectedSeasonNumber.value = info?.seasons?.firstOrNull()?.seasonNumber
+                ?: info?.episodes?.keys?.mapNotNull { it.toIntOrNull() }?.minOrNull()
+                ?: 1
+        }
+    }
+
+    private suspend fun loadMeta(block: suspend () -> Unit) {
+        _metaLoading.value = true
+        try {
+            block()
+        } catch (_: TmdbAuthException) {
+            // Geçersiz anahtar: ekran IPTV verisiyle çalışmaya devam eder.
+        } finally {
+            _metaLoading.value = false
+        }
+    }
+
+    fun toggleVodFavorite() {
+        viewModelScope.launch {
+            val item = vod.filterNotNull().first()
+            repository.toggleVodFavorite(item)
+        }
+    }
+
+    fun toggleSeriesFavorite() {
+        viewModelScope.launch {
+            val item = series.filterNotNull().first()
+            repository.toggleSeriesFavorite(item)
         }
     }
 
     fun selectSeason(seasonNumber: Int) {
         _selectedSeasonNumber.value = seasonNumber
+    }
+
+    /** Sezon listesi: API sezon vermese bile bölüm anahtarlarından türetilir. */
+    fun seasonNumbers(info: XtreamSeriesInfoResponse?): List<Int> {
+        val fromSeasons = info?.seasons.orEmpty().map { it.seasonNumber }
+        val fromEpisodes = info?.episodes?.keys.orEmpty().mapNotNull { it.toIntOrNull() }
+        return (fromSeasons + fromEpisodes).filter { s -> info?.episodes?.get(s.toString()).orEmpty().isNotEmpty() }
+            .distinct()
+            .sorted()
     }
 
     fun getEpisodesForSeason(seasonNumber: Int): List<XtreamEpisode> {
