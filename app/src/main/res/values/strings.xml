@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">TeTi</string>
-    <string name="tab_live_tv">Canlı TV</string>
+    <string name="tab_live_tv">Canlı</string>
     <string name="tab_movies">Filmler</string>
     <string name="tab_series">Diziler</string>
-    <string name="tab_search">Arama</string>
+    <string name="tab_search">Ara</string>
     <string name="tab_settings">Ayarlar</string>
 </resources>

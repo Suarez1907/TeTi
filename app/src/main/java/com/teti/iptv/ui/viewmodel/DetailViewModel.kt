@@ -25,11 +25,19 @@ class DetailViewModel @Inject constructor(
     private val ratingRepository: RatingRepository
 ) : ViewModel() {
 
+    enum class DetailStatus { Loading, Ready, Missing }
+
     private val _vod = MutableStateFlow<VodEntity?>(null)
     val vod: StateFlow<VodEntity?> = _vod.asStateFlow()
 
+    private val _vodStatus = MutableStateFlow(DetailStatus.Loading)
+    val vodStatus: StateFlow<DetailStatus> = _vodStatus.asStateFlow()
+
     private val _series = MutableStateFlow<SeriesEntity?>(null)
     val series: StateFlow<SeriesEntity?> = _series.asStateFlow()
+
+    private val _seriesStatus = MutableStateFlow(DetailStatus.Loading)
+    val seriesStatus: StateFlow<DetailStatus> = _seriesStatus.asStateFlow()
 
     private val _seriesInfo = MutableStateFlow<XtreamSeriesInfoResponse?>(null)
     val seriesInfo: StateFlow<XtreamSeriesInfoResponse?> = _seriesInfo.asStateFlow()
@@ -40,8 +48,10 @@ class DetailViewModel @Inject constructor(
 
     fun loadVod(streamId: String) {
         viewModelScope.launch {
+            _vodStatus.value = DetailStatus.Loading
             val item = repository.getVodById(streamId)
             _vod.value = item
+            _vodStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
             if (item != null && item.imdbRating == null) {
                 ratingRepository.enrichVodRating(item.streamId, item.title)
                 _vod.value = repository.getVodById(streamId)
@@ -51,8 +61,10 @@ class DetailViewModel @Inject constructor(
 
     fun loadSeries(seriesId: String) {
         viewModelScope.launch {
+            _seriesStatus.value = DetailStatus.Loading
             val item = repository.getSeriesById(seriesId)
             _series.value = item
+            _seriesStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
             if (item != null) {
                 if (item.imdbRating == null) {
                     ratingRepository.enrichSeriesRating(item.seriesId, item.title)

@@ -2,6 +2,7 @@ package com.teti.iptv.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.teti.iptv.domain.catalog.CatalogSort
 import com.teti.iptv.player.BufferProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,12 @@ class AppPreferences @Inject constructor(
     private val _userAgent = MutableStateFlow(prefs.getString(KEY_USER_AGENT, "TeTi-IPTV/1.0") ?: "TeTi-IPTV/1.0")
     val userAgent: StateFlow<String> = _userAgent.asStateFlow()
 
+    private val _vodSort = MutableStateFlow(CatalogSort.fromStorage(prefs.getString(KEY_VOD_SORT, null)))
+    val vodSort: StateFlow<CatalogSort> = _vodSort.asStateFlow()
+
+    private val _seriesSort = MutableStateFlow(CatalogSort.fromStorage(prefs.getString(KEY_SERIES_SORT, null)))
+    val seriesSort: StateFlow<CatalogSort> = _seriesSort.asStateFlow()
+
     fun setBufferProfile(profile: BufferProfile) {
         prefs.edit().putString(KEY_BUFFER_PROFILE, profile.name).apply()
         _bufferProfile.value = profile
@@ -64,11 +71,23 @@ class AppPreferences @Inject constructor(
         _userAgent.value = clean
     }
 
+    fun setVodSort(sort: CatalogSort) {
+        prefs.edit().putString(KEY_VOD_SORT, sort.storageKey).apply()
+        _vodSort.value = sort
+    }
+
+    fun setSeriesSort(sort: CatalogSort) {
+        prefs.edit().putString(KEY_SERIES_SORT, sort.storageKey).apply()
+        _seriesSort.value = sort
+    }
+
     companion object {
         private const val KEY_BUFFER_PROFILE = "buffer_profile"
         private const val KEY_SOFTWARE_DECODER = "software_decoder"
         private const val KEY_OMDB_KEY = "omdb_api_key"
         private const val KEY_TMDB_KEY = "tmdb_api_key"
         private const val KEY_USER_AGENT = "user_agent"
+        private const val KEY_VOD_SORT = "vod_sort"
+        private const val KEY_SERIES_SORT = "series_sort"
     }
 }

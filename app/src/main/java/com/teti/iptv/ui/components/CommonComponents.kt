@@ -1,11 +1,10 @@
 package com.teti.iptv.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -15,7 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
@@ -31,13 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.teti.iptv.domain.catalog.CatalogSort
 import com.teti.iptv.ui.theme.DarkGold
 import com.teti.iptv.ui.theme.DarkSurface
+import com.teti.iptv.ui.theme.TeTiAmber
+import com.teti.iptv.ui.theme.TeTiMuted
+import com.teti.iptv.ui.theme.TeTiSurfaceHigh
+import com.teti.iptv.ui.theme.TeTiText
 import java.util.Locale
 
 @Composable
@@ -47,28 +50,32 @@ fun CategoryChipsRow(
     onSelectCategory: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+    val allCats = listOf(CatalogSort.CATEGORY_ALL, CatalogSort.CATEGORY_FAVORITES) +
+        categories.filter { it != CatalogSort.CATEGORY_ALL && it != CatalogSort.CATEGORY_FAVORITES }
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        val allCats = listOf("Tümü", "Favoriler") + categories.filter { it != "Tümü" && it != "Favoriler" }
-        allCats.forEach { cat ->
-            val isSelected = (selectedCategory ?: "Tümü") == cat
+        items(allCats, key = { it }) { cat ->
+            val isSelected = (selectedCategory ?: CatalogSort.CATEGORY_ALL) == cat
             FilterChip(
                 selected = isSelected,
                 onClick = { onSelectCategory(cat) },
-                label = { Text(cat, fontSize = 13.sp) },
+                label = {
+                    Text(
+                        cat,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+                },
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = Color.White,
-                    containerColor = DarkSurface,
-                    labelColor = Color.LightGray
+                    selectedContainerColor = TeTiAmber,
+                    selectedLabelColor = Color(0xFF1A1006),
+                    containerColor = TeTiSurfaceHigh,
+                    labelColor = TeTiText
                 ),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(20.dp)
             )
         }
     }
@@ -81,11 +88,11 @@ fun RatingBadge(
 ) {
     Surface(
         modifier = modifier,
-        color = Color.Black.copy(alpha = 0.75f),
-        shape = RoundedCornerShape(4.dp)
+        color = Color.Black.copy(alpha = 0.72f),
+        shape = RoundedCornerShape(8.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
@@ -93,13 +100,12 @@ fun RatingBadge(
                 imageVector = Icons.Default.Star,
                 contentDescription = null,
                 tint = DarkGold,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(14.dp)
             )
             Text(
                 text = String.format(Locale.US, "%.1f", rating),
                 color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.labelMedium
             )
         }
     }
@@ -111,18 +117,19 @@ fun PosterCard(
     posterUrl: String?,
     rating: Float? = null,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fillWidth: Boolean = false
 ) {
     Column(
         modifier = modifier
-            .width(130.dp)
-            .clickable(onClick = onClick)
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier.width(132.dp))
+            .tetiClickable(shape = RoundedCornerShape(14.dp), onClick = onClick)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(DarkSurface)
         ) {
             if (!posterUrl.isNullOrBlank()) {
@@ -131,6 +138,13 @@ fun PosterCard(
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = title.take(1).uppercase(Locale.getDefault()),
+                    color = TeTiMuted,
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.align(Alignment.Center)
                 )
             }
             if (rating != null && rating > 0f) {
@@ -142,14 +156,36 @@ fun PosterCard(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = title,
-            color = Color.White,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            color = TeTiText,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
+    }
+}
+
+@Composable
+fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = TeTiText,
+        style = MaterialTheme.typography.titleMedium,
+        modifier = modifier.padding(vertical = 8.dp)
+    )
+}
+
+@Composable
+fun EmptyHint(text: String, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            color = TeTiMuted,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(24.dp)
         )
     }
 }

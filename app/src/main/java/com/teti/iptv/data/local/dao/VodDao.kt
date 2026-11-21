@@ -5,7 +5,9 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.teti.iptv.data.local.entity.VodEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -28,6 +30,12 @@ interface VodDao {
 
     @Query("SELECT DISTINCT categoryName FROM vod_movies WHERE profileId = :profileId ORDER BY categoryName ASC")
     fun getCategories(profileId: Long): Flow<List<String>>
+
+    @Query("SELECT DISTINCT releaseYear FROM vod_movies WHERE profileId = :profileId AND releaseYear IS NOT NULL ORDER BY releaseYear DESC")
+    fun getReleaseYears(profileId: Long): Flow<List<Int>>
+
+    @RawQuery(observedEntities = [VodEntity::class])
+    fun getVodPagingRaw(query: SupportSQLiteQuery): PagingSource<Int, VodEntity>
 
     @Query("SELECT * FROM vod_movies WHERE profileId = :profileId AND (title LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') LIMIT 100")
     fun searchVod(profileId: Long, query: String): Flow<List<VodEntity>>

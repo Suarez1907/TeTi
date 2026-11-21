@@ -6,6 +6,9 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.room.withTransaction
+import androidx.sqlite.db.SimpleSQLiteQuery
+import com.teti.iptv.domain.catalog.CatalogQuery
+import com.teti.iptv.domain.catalog.CatalogSort
 import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.dao.ChannelDao
 import com.teti.iptv.data.local.dao.EpgDao
@@ -101,19 +104,27 @@ class IptvRepository @Inject constructor(
     }
 
     // --- FİLMLER (VOD) ---
-    fun getVodPaged(profileId: Long, category: String? = null): Flow<PagingData<VodEntity>> {
-        return Pager(PagingConfig(pageSize = 40, prefetchDistance = 10, enablePlaceholders = false)) {
-            if (category.isNullOrBlank() || category == "Tümü") {
-                vodDao.getVodPaging(profileId)
-            } else if (category == "Favoriler") {
-                vodDao.getFavoritesPaging(profileId)
-            } else {
-                vodDao.getVodByCategoryPaging(profileId, category)
-            }
+    fun getVodPaged(
+        profileId: Long,
+        category: String? = null,
+        year: Int? = null,
+        sort: CatalogSort = CatalogSort.RECENTLY_ADDED
+    ): Flow<PagingData<VodEntity>> {
+        val bound = CatalogQuery.vod(profileId, category, year, sort)
+        return Pager(
+            PagingConfig(
+                pageSize = 48,
+                prefetchDistance = 12,
+                enablePlaceholders = false,
+                maxSize = 240
+            )
+        ) {
+            vodDao.getVodPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
         }.flow
     }
 
     fun getVodCategories(profileId: Long): Flow<List<String>> = vodDao.getCategories(profileId)
+    fun getVodYears(profileId: Long): Flow<List<Int>> = vodDao.getReleaseYears(profileId)
     fun getTopRatedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> = vodDao.getTopRated(profileId, limit)
     fun getRecentlyAddedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> = vodDao.getRecentlyAdded(profileId, limit)
     suspend fun getVodById(streamId: String): VodEntity? = vodDao.getById(streamId)
@@ -121,20 +132,29 @@ class IptvRepository @Inject constructor(
     suspend fun toggleVodFavorite(vod: VodEntity) = vodDao.setFavorite(vod.streamId, !vod.isFavorite)
 
     // --- DİZİLER ---
-    fun getSeriesPaged(profileId: Long, category: String? = null): Flow<PagingData<SeriesEntity>> {
-        return Pager(PagingConfig(pageSize = 40, prefetchDistance = 10, enablePlaceholders = false)) {
-            if (category.isNullOrBlank() || category == "Tümü") {
-                seriesDao.getSeriesPaging(profileId)
-            } else if (category == "Favoriler") {
-                seriesDao.getFavoritesPaging(profileId)
-            } else {
-                seriesDao.getSeriesByCategoryPaging(profileId, category)
-            }
+    fun getSeriesPaged(
+        profileId: Long,
+        category: String? = null,
+        year: Int? = null,
+        sort: CatalogSort = CatalogSort.RECENTLY_ADDED
+    ): Flow<PagingData<SeriesEntity>> {
+        val bound = CatalogQuery.series(profileId, category, year, sort)
+        return Pager(
+            PagingConfig(
+                pageSize = 48,
+                prefetchDistance = 12,
+                enablePlaceholders = false,
+                maxSize = 240
+            )
+        ) {
+            seriesDao.getSeriesPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
         }.flow
     }
 
     fun getSeriesCategories(profileId: Long): Flow<List<String>> = seriesDao.getCategories(profileId)
+    fun getSeriesYears(profileId: Long): Flow<List<Int>> = seriesDao.getReleaseYears(profileId)
     fun getTopRatedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> = seriesDao.getTopRated(profileId, limit)
+    fun getRecentlyAddedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> = seriesDao.getRecentlyAdded(profileId, limit)
     suspend fun getSeriesById(seriesId: String): SeriesEntity? = seriesDao.getById(seriesId)
     fun getSeriesByIdFlow(seriesId: String): Flow<SeriesEntity?> = seriesDao.getByIdFlow(seriesId)
     suspend fun toggleSeriesFavorite(series: SeriesEntity) = seriesDao.setFavorite(series.seriesId, !series.isFavorite)
