@@ -15,14 +15,30 @@ android {
         applicationId = "com.teti.iptv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Release signing: set TETI_KEYSTORE_FILE, TETI_KEYSTORE_PASSWORD, TETI_KEY_ALIAS and
+    // TETI_KEY_PASSWORD (CI fills them from repository secrets). Without them the release
+    // APK is signed with the debug key so it still installs; an unsigned APK does not.
+    val releaseKeystore = System.getenv("TETI_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("TETI_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TETI_KEY_ALIAS")
+                keyPassword = System.getenv("TETI_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

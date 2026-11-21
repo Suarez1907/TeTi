@@ -1,6 +1,7 @@
 package com.teti.iptv.ui.theme
 
 import android.app.Activity
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -37,7 +38,11 @@ fun TeTiTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
-                window.statusBarColor = colorScheme.background.toArgb()
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    // Ignored from Android 15 (edge-to-edge); still needed on older versions.
+                    @Suppress("DEPRECATION")
+                    window.statusBarColor = colorScheme.background.toArgb()
+                }
                 WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
             }
         }
