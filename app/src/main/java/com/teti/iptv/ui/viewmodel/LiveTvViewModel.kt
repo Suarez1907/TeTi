@@ -36,6 +36,9 @@ class LiveTvViewModel @Inject constructor(
     private val _selectedChannel = MutableStateFlow<ChannelEntity?>(null)
     val selectedChannel: StateFlow<ChannelEntity?> = _selectedChannel.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     val categories: StateFlow<List<String>> = activeProfile.flatMapLatest { profile ->
         if (profile != null) repository.getChannelCategories(profile.id) else emptyFlow()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -63,6 +66,19 @@ class LiveTvViewModel @Inject constructor(
     fun toggleFavorite(channel: ChannelEntity) {
         viewModelScope.launch {
             repository.toggleChannelFavorite(channel)
+        }
+    }
+
+    fun refresh() {
+        val profile = activeProfile.value ?: return
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                repository.syncProfile(profile.id)
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 }

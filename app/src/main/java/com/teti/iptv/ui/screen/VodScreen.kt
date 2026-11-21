@@ -1,20 +1,17 @@
 package com.teti.iptv.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -26,10 +23,12 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,21 +38,32 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import coil3.compose.AsyncImage
 import com.teti.iptv.data.local.entity.VodEntity
+import com.teti.iptv.domain.catalog.CatalogSort
+import com.teti.iptv.ui.components.CatalogControlBar
 import com.teti.iptv.ui.components.CategoryChipsRow
+import com.teti.iptv.ui.components.EmptyHint
 import com.teti.iptv.ui.components.PosterCard
 import com.teti.iptv.ui.components.RatingBadge
-import com.teti.iptv.ui.theme.DarkRed
-import com.teti.iptv.ui.theme.DarkSurface
+import com.teti.iptv.ui.components.ScreenHeading
+import com.teti.iptv.ui.components.SectionTitle
+import com.teti.iptv.ui.components.tetiClickable
+import com.teti.iptv.ui.device.rememberDeviceProfile
+import com.teti.iptv.ui.theme.TeTiAmber
+import com.teti.iptv.ui.theme.TeTiAmberDeep
+import com.teti.iptv.ui.theme.TeTiInk
+import com.teti.iptv.ui.theme.TeTiMuted
+import com.teti.iptv.ui.theme.TeTiText
 import com.teti.iptv.ui.viewmodel.VodViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VodScreen(
     onMovieClick: (VodEntity) -> Unit,
@@ -62,12 +72,18 @@ fun VodScreen(
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val years by viewModel.years.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val selectedYear by viewModel.selectedYear.collectAsState()
+    val sort by viewModel.sort.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val topRated by viewModel.topRated.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
     val vodPaging = viewModel.vodPaging.collectAsLazyPagingItems()
-
-    val heroMovie = topRated.firstOrNull() ?: recentlyAdded.firstOrNull()
+    val device = rememberDeviceProfile()
+    val discover = selectedCategory == CatalogSort.CATEGORY_ALL &&
+        selectedYear == null &&
+        sort == CatalogSort.RECENTLY_ADDED
 
     Column(
         modifier = Modifier
@@ -75,110 +91,60 @@ fun VodScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         if (activeProfile == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Lütfen Ayarlar sekmesinden bir profil ekleyin.", color = Color.Gray)
-            }
+            ScreenHeading(title = "Filmler", subtitle = "Katalog")
+            EmptyHint("Lütfen Ayarlar sekmesinden bir profil ekleyin.")
             return
         }
 
+        ScreenHeading(
+            title = "Filmler",
+            subtitle = if (discover) "Keşfet ve tüm katalog" else "${sort.label()} · $selectedCategory"
+        )
         CategoryChipsRow(
             categories = categories,
             selectedCategory = selectedCategory,
-            onSelectCategory = { viewModel.selectCategory(it) }
+            onSelectCategory = viewModel::selectCategory
         )
+        if (device.useNavigationRail) {
+            CatalogControlBar(
+                sort = sort,
+                onSortChange = viewModel::selectSort,
+                years = years,
+                selectedYear = selectedYear,
+                onYearChange = viewModel::selectYear
+            )
+        }
 
-        if (selectedCategory == "Tümü" || selectedCategory == null) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 80.dp)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = if (device.widthDp >= 700) 150.dp else 112.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxSize()
             ) {
-                // Netflix Tarzı Hero Banner
-                heroMovie?.let { hero ->
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(320.dp)
-                                .clickable { onMovieClick(hero) }
-                        ) {
-                            AsyncImage(
-                                model = hero.backdropUrl ?: hero.posterUrl,
-                                contentDescription = hero.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
+                if (discover) {
+                    val hero = topRated.firstOrNull() ?: recentlyAdded.firstOrNull()
+                    if (hero != null) {
+                        item(span = { GridItemSpan(maxLineSpan) }, contentType = "hero") {
+                            MovieHero(
+                                movie = hero,
+                                onPlay = { onPlayMovie(hero) },
+                                onInfo = { onMovieClick(hero) }
                             )
-
-                            // Karartma gradyanı
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.Transparent,
-                                                Color.Black.copy(alpha = 0.5f),
-                                                MaterialTheme.colorScheme.background
-                                            )
-                                        )
-                                    )
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(16.dp)
-                            ) {
-                                hero.imdbRating?.let {
-                                    RatingBadge(rating = it)
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                }
-                                Text(
-                                    text = hero.title,
-                                    color = Color.White,
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Button(
-                                        onClick = { onPlayMovie(hero) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = DarkRed),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Oynat", fontWeight = FontWeight.Bold)
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = { onMovieClick(hero) },
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Info, contentDescription = null, tint = Color.White)
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Detay", color = Color.White)
-                                    }
-                                }
-                            }
                         }
                     }
-                }
-
-                // En Çok Oy Alanlar Carousel
-                if (topRated.isNotEmpty()) {
-                    item {
-                        Column(modifier = Modifier.padding(top = 16.dp)) {
-                            Text(
-                                text = "En Beğenilen Filmler",
-                                color = Color.White,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
+                    if (topRated.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, contentType = "row") {
+                            Column {
+                            SectionTitle("En beğenilenler")
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 items(topRated, key = { it.streamId }) { movie ->
@@ -190,23 +156,14 @@ fun VodScreen(
                                     )
                                 }
                             }
+                            }
                         }
                     }
-                }
-
-                // Son Eklenenler Carousel
-                if (recentlyAdded.isNotEmpty()) {
-                    item {
-                        Column(modifier = Modifier.padding(top = 16.dp)) {
-                            Text(
-                                text = "Son Eklenenler",
-                                color = Color.White,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
+                    if (recentlyAdded.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, contentType = "row") {
+                            Column {
+                            SectionTitle("Son eklenenler")
                             LazyRow(
-                                contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 items(recentlyAdded, key = { it.streamId }) { movie ->
@@ -218,31 +175,126 @@ fun VodScreen(
                                     )
                                 }
                             }
+                            }
                         }
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
+                        SectionTitle("Tüm filmler")
+                    }
+                }
+
+                items(
+                    count = vodPaging.itemCount,
+                    key = vodPaging.itemKey { it.streamId },
+                    contentType = { "poster" }
+                ) { index ->
+                    val movie = vodPaging[index]
+                    if (movie == null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(TeTiInk)
+                        )
+                    } else {
+                        PosterCard(
+                            title = movie.title,
+                            posterUrl = movie.posterUrl,
+                            rating = movie.imdbRating,
+                            onClick = { onMovieClick(movie) },
+                            fillWidth = true
+                        )
+                    }
+                }
+
+                if (vodPaging.loadState.refresh is LoadState.NotLoading && vodPaging.itemCount == 0) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyHint(if (discover) "Katalog boş. Aşağı çekerek senkronize edebilirsiniz." else "Bu filtreyle eşleşen film yok.")
                     }
                 }
             }
-        } else {
-            // Kategoriye Göre Grid
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 110.dp),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(
-                    count = vodPaging.itemCount,
-                    key = { index -> vodPaging[index]?.streamId ?: index }
-                ) { index ->
-                    val movie = vodPaging[index] ?: return@items
-                    PosterCard(
-                        title = movie.title,
-                        posterUrl = movie.posterUrl,
-                        rating = movie.imdbRating,
-                        onClick = { onMovieClick(movie) },
-                        modifier = Modifier.fillMaxWidth()
+        }
+
+        if (!device.useNavigationRail) {
+            CatalogControlBar(
+                sort = sort,
+                onSortChange = viewModel::selectSort,
+                years = years,
+                selectedYear = selectedYear,
+                onYearChange = viewModel::selectYear
+            )
+        }
+    }
+}
+
+@Composable
+private fun MovieHero(
+    movie: VodEntity,
+    onPlay: () -> Unit,
+    onInfo: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(300.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .tetiClickable(shape = RoundedCornerShape(20.dp), onClick = onInfo)
+    ) {
+        AsyncImage(
+            model = movie.backdropUrl ?: movie.posterUrl,
+            contentDescription = movie.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.25f), TeTiInk)
                     )
+                )
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(16.dp)
+        ) {
+            movie.imdbRating?.let {
+                RatingBadge(rating = it)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Text(
+                text = movie.title,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            movie.releaseYear?.let {
+                Text(text = it.toString(), color = TeTiMuted, style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onPlay,
+                    modifier = Modifier.height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = TeTiAmber, contentColor = TeTiAmberDeep),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Oynat", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(
+                    onClick = onInfo,
+                    modifier = Modifier.height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = TeTiText)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Detay", color = TeTiText)
                 }
             }
         }
