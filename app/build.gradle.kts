@@ -66,6 +66,13 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Robolectric'in Android imajını da aynadan indir (Maven Central 429 verebiliyor).
+            it.systemProperty(
+                "robolectric.dependency.repo.url",
+                "https://maven-central.storage-download.googleapis.com/maven2"
+            )
+        }
     }
 
     buildFeatures {
