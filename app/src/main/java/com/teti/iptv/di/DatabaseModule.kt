@@ -6,6 +6,7 @@ import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.dao.ChannelDao
 import com.teti.iptv.data.local.dao.EpgDao
 import com.teti.iptv.data.local.dao.PlaylistDao
+import com.teti.iptv.data.local.dao.TmdbMatchDao
 import com.teti.iptv.data.local.dao.TmdbMetadataDao
 import com.teti.iptv.data.local.dao.SeriesDao
 import com.teti.iptv.data.local.dao.VodDao
@@ -29,7 +30,7 @@ object DatabaseModule {
             TeTiDatabase::class.java,
             "teti_iptv.db"
         )
-            .addMigrations(TeTiDatabase.MIGRATION_1_2)
+            .addMigrations(TeTiDatabase.MIGRATION_1_2, TeTiDatabase.MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -54,4 +55,7 @@ object DatabaseModule {
 
     @Provides
     fun provideTmdbMetadataDao(db: TeTiDatabase): TmdbMetadataDao = db.tmdbMetadataDao()
+
+    @Provides
+    fun provideTmdbMatchDao(db: TeTiDatabase): TmdbMatchDao = db.tmdbMatchDao()
 }

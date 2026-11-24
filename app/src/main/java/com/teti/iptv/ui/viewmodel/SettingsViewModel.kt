@@ -1,6 +1,11 @@
 package com.teti.iptv.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
+import com.teti.iptv.data.backup.BackupManager
+import com.teti.iptv.domain.parental.PinHasher
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import com.teti.iptv.data.local.AppPreferences
@@ -26,7 +31,8 @@ class SettingsViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val ratingRepository: RatingRepository,
     private val preferences: AppPreferences,
-    private val scheduler: BackgroundScheduler
+    private val scheduler: BackgroundScheduler,
+    private val backupManager: BackupManager
 ) : ViewModel() {
 
     val profiles: StateFlow<List<PlaylistProfileEntity>> = repository.getAllProfiles()
@@ -142,6 +148,73 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             ratingRepository.clearCache()
             scheduler.enqueueTmdbEnrich(restart = true)
+        }
+    }
+
+    // --- Ebeveyn kilidi ---
+    val parentalEnabled: StateFlow<Boolean> = preferences.parentalEnabled
+    val lockedCategories: StateFlow<Set<String>> = preferences.lockedCategories
+    val sessionUnlocked: StateFlow<Boolean> = preferences.sessionUnlocked
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allCategories: StateFlow<List<String>> = activeProfile.flatMapLatest { p ->
+        if (p == null) flowOf(emptyList()) else repository.getAllCategories(p.id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** @return hata mesajı ya da null (başarılı). */
+    fun setPin(newPin: String, currentPin: String?): String? {
+        if (preferences.parentalEnabled.value && !preferences.verifyPin(currentPin.orEmpty())) return "Mevcut PIN yanlış"
+        if (!PinHasher.isValidPin(newPin)) return "PIN 4-8 haneli rakam olmalı"
+        preferences.setParentalPin(newPin)
+        return null
+    }
+
+    fun removePin(pin: String): Boolean = preferences.clearParentalPin(pin)
+    fun unlockSession(pin: String): Boolean = preferences.unlockSession(pin)
+    fun lockSession() = preferences.lockSession()
+    fun setLockedCategories(categories: Set<String>) = preferences.setLockedCategories(categories)
+
+    // --- Altyazı ---
+    val subtitleScale: StateFlow<Float> = preferences.subtitleScale
+    val subtitleBackground: StateFlow<Boolean> = preferences.subtitleBackground
+    fun setSubtitleScale(scale: Float) = preferences.setSubtitleScale(scale)
+    fun setSubtitleBackground(enabled: Boolean) = preferences.setSubtitleBackground(enabled)
+
+    // --- Yedekleme ---
+    private val _backupStatus = MutableStateFlow<String?>(null)
+    val backupStatus: StateFlow<String?> = _backupStatus.asStateFlow()
+
+    fun exportBackup(uri: Uri) {
+        viewModelScope.launch {
+            _backupStatus.value = runCatching { backupManager.export(uri) }
+                .fold({ "Yedeklendi: $it profil. Dosya şifreleri içerir, güvenli saklayın." }, { "Yedeklenemedi: ${it.message}" })
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        viewModelScope.launch {
+            _backupStatus.value = runCatching { backupManager.import(uri) }
+                .fold({ "$it profil geri yüklendi. Kataloğu indirmek için Senkronize Et'e basın." }, { "Geri yüklenemedi: ${it.message}" })
+        }
+    }
+
+    // --- Kanal temizleme ---
+    private val _cleanupStatus = MutableStateFlow<String?>(null)
+    val cleanupStatus: StateFlow<String?> = _cleanupStatus.asStateFlow()
+
+    fun hideDuplicateChannels() {
+        val profile = activeProfile.value ?: return
+        viewModelScope.launch {
+            val count = repository.hideDuplicateChannels(profile.id)
+            _cleanupStatus.value = if (count == 0) "Tekrar eden kanal bulunamadı." else "$count tekrar eden kanal gizlendi."
+        }
+    }
+
+    fun unhideAllChannels() {
+        val profile = activeProfile.value ?: return
+        viewModelScope.launch {
+            val count = repository.unhideAllChannels(profile.id)
+            _cleanupStatus.value = "$count kanal yeniden gösteriliyor."
         }
     }
 

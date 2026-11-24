@@ -13,6 +13,9 @@ import com.teti.iptv.repository.RatingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.delay
+import com.teti.iptv.data.local.entity.WatchHistoryEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +67,23 @@ class SeriesViewModel @Inject constructor(
 
     val topRated: StateFlow<List<SeriesEntity>> = activeProfile.flatMapLatest { profile ->
         if (profile != null) repository.getTopRatedSeries(profile.id, 15) else emptyFlow()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Kaldığın yerden devam et. */
+    val continueWatching: StateFlow<List<WatchHistoryEntity>> = activeProfile.flatMapLatest { profile ->
+        if (profile != null) repository.getContinueWatching(profile.id, WatchHistoryEntity.TYPE_EPISODE) else emptyFlow()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** TMDB'de bu hafta trend olan ve katalogda bulunanlar (TMDB verisi dolunca yenilenir). */
+    val trending: StateFlow<List<SeriesEntity>> = activeProfile.flatMapLatest { profile ->
+        if (profile == null) emptyFlow() else flow {
+            emit(ratingRepository.trendingSeries(profile.id).filter { it.categoryName !in preferences.hiddenCategories.value })
+            // Arka plandaki TMDB eşleştirmesi ilerledikçe raf da dolsun.
+            repeat(5) {
+                delay(60_000)
+                emit(ratingRepository.trendingSeries(profile.id).filter { it.categoryName !in preferences.hiddenCategories.value })
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentlyAdded: StateFlow<List<SeriesEntity>> = activeProfile.flatMapLatest { profile ->

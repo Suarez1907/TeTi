@@ -73,6 +73,12 @@ class DetailViewModel @Inject constructor(
 
     private var seriesProfile: PlaylistProfileEntity? = null
 
+    private val _similarMovies = MutableStateFlow<List<VodEntity>>(emptyList())
+    val similarMovies: StateFlow<List<VodEntity>> = _similarMovies.asStateFlow()
+
+    private val _similarSeries = MutableStateFlow<List<SeriesEntity>>(emptyList())
+    val similarSeries: StateFlow<List<SeriesEntity>> = _similarSeries.asStateFlow()
+
     fun loadVod(streamId: String) {
         if (vodId.value == streamId) return
         vodId.value = streamId
@@ -80,7 +86,10 @@ class DetailViewModel @Inject constructor(
             _vodStatus.value = DetailStatus.Loading
             val item = repository.getVodById(streamId)
             _vodStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
-            if (item != null) loadMeta { ratingRepository.ensureMovieDetails(item.streamId, item.title) }
+            if (item != null) {
+                loadMeta { ratingRepository.ensureMovieDetails(item.streamId, item.title) }
+                _similarMovies.value = ratingRepository.similarMovies(item.profileId, item.streamId)
+            }
         }
     }
 
@@ -92,7 +101,10 @@ class DetailViewModel @Inject constructor(
             val item = repository.getSeriesById(id)
             _seriesStatus.value = if (item == null) DetailStatus.Missing else DetailStatus.Ready
             if (item == null) return@launch
-            launch { loadMeta { ratingRepository.ensureSeriesDetails(item.seriesId, item.title) } }
+            launch {
+                loadMeta { ratingRepository.ensureSeriesDetails(item.seriesId, item.title) }
+                _similarSeries.value = ratingRepository.similarSeries(item.profileId, item.seriesId)
+            }
             val activeProfile = repository.getActiveProfileOnce() ?: return@launch
             seriesProfile = activeProfile
             val info = repository.getSeriesInfo(activeProfile, id)

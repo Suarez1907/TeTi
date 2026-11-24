@@ -45,4 +45,18 @@ class CatalogQueryTest {
         assertEquals(CatalogSort.RECENTLY_ADDED, CatalogSort.fromStorage("nope"))
         assertEquals(CatalogSort.NAME_ASC, CatalogSort.fromStorage("name_asc"))
     }
+
+    @Test
+    fun lockedCategoriesAreExcludedWithBoundParameters() {
+        val query = CatalogQuery.vod(3L, null, null, CatalogSort.RECENTLY_ADDED, setOf("Yetişkin", "Korku"))
+        assertTrue(query.sql.contains("categoryName NOT IN (?,?)"))
+        assertFalse(query.sql.contains("Yetişkin"))
+        assertEquals(listOf<Any>(3L, "Korku", "Yetişkin"), query.args)
+
+        val channels = CatalogQuery.channels(3L, "Spor", setOf("Yetişkin"))
+        assertTrue(channels.sql.contains("isHidden = 0"))
+        assertTrue(channels.sql.contains("categoryName = ?"))
+        assertTrue(channels.sql.contains("ORDER BY sortOrder ASC"))
+        assertEquals(listOf<Any>(3L, "Spor", "Yetişkin"), channels.args)
+    }
 }

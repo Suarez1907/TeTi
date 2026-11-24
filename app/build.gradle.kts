@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -15,14 +17,13 @@ android {
         applicationId = "com.teti.iptv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.2.0"
 
-        // TMDB kimlik bilgileri. Kullanıcı Ayarlar'dan kendi anahtarını girerse o kullanılır.
-        // CI veya yerel derlemede TETI_TMDB_API_KEY / TETI_TMDB_READ_TOKEN ile değiştirilebilir.
-        val tmdbApiKey = System.getenv("TETI_TMDB_API_KEY") ?: "718b53dc3d48cedcf2ae81d8bed699a0"
-        val tmdbReadToken = System.getenv("TETI_TMDB_READ_TOKEN")
-            ?: "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3MThiNTNkYzNkNDhjZWRjZjJhZTgxZDhiZWQ2OTlhMCIsIm5iZiI6MTc5NTI1Nzk3NS45NDksInN1YiI6IjZiMDE3Njc3MGZkNGU3ZjNhYzhmOGQ5ZiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.-40fvsAcovHRYUiCNYzCaSFBrAM66P7NtydgblsM2KM"
+        // TMDB kimlik bilgileri kaynak kodda tutulmaz: ortam değişkeni (CI secret) ya da
+        // local.properties'ten okunur. Boşsa kullanıcı Ayarlar'dan kendi anahtarını girer.
+        val tmdbApiKey = secretOrLocal("TETI_TMDB_API_KEY", "tmdb.apiKey")
+        val tmdbReadToken = secretOrLocal("TETI_TMDB_READ_TOKEN", "tmdb.readToken")
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("String", "TMDB_READ_TOKEN", "\"$tmdbReadToken\"")
 
@@ -47,7 +48,9 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
-            isMinifyEnabled = false
+            // R8: kullanılmayan kod ve kaynakları atar, kalanı optimize eder.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -61,6 +64,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -105,9 +112,22 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 
+    implementation(libs.androidx.profileinstaller)
+    implementation(libs.media3.cast)
+
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+}
+
+fun secretOrLocal(envName: String, propertyName: String): String {
+    System.getenv(envName)?.takeIf { it.isNotBlank() }?.let { return it }
+    val file = rootProject.file("local.properties")
+    if (!file.exists()) return ""
+    val props = Properties().apply { file.inputStream().use { load(it) } }
+    return props.getProperty(propertyName).orEmpty()
 }

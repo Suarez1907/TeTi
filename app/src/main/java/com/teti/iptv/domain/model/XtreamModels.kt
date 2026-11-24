@@ -110,3 +110,9 @@ data class TmdbDetails(
     @SerialName("created_by") val createdBy: List<TmdbPerson>? = null
 )
 
+
+@Serializable
+data class TmdbIdPage(val results: List<TmdbIdOnly>? = null)
+
+@Serializable
+data class TmdbIdOnly(val id: Long? = null)

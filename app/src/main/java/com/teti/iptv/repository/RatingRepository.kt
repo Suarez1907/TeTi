@@ -6,7 +6,11 @@ import com.teti.iptv.data.local.AppPreferences
 import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.TmdbCredential
 import com.teti.iptv.data.local.dao.SeriesDao
+import com.teti.iptv.data.local.dao.TmdbMatchDao
 import com.teti.iptv.data.local.dao.TmdbMetadataDao
+import com.teti.iptv.data.local.entity.SeriesEntity
+import com.teti.iptv.data.local.entity.VodEntity
+import com.teti.iptv.domain.model.TmdbIdPage
 import com.teti.iptv.data.local.dao.VodDao
 import com.teti.iptv.data.local.entity.TmdbMetadataEntity
 import com.teti.iptv.data.remote.RatingApiService
@@ -49,6 +53,7 @@ class RatingRepository @Inject constructor(
     private val vodDao: VodDao,
     private val seriesDao: SeriesDao,
     private val database: TeTiDatabase,
+    private val matchDao: TmdbMatchDao,
     private val json: Json
 ) {
     enum class Kind(val path: String) { MOVIE("movie"), TV("tv") }
@@ -121,6 +126,72 @@ class RatingRepository @Inject constructor(
             }
         }
         done
+    }
+
+    // --- Öneri rafları: TMDB listeleri katalogdaki içeriklerle eşleştirilir ---
+    private data class CachedIds(val ids: List<Long>, val at: Long)
+    private val idCache = java.util.concurrent.ConcurrentHashMap<String, CachedIds>()
+
+    /** Bu hafta TMDB'de trend olan ve katalogda bulunan filmler (trend sırasıyla). */
+    suspend fun trendingMovies(profileId: Long, limit: Int = 20): List<VodEntity> = withContext(Dispatchers.IO) {
+        val ids = idsFor("trending/movie/week") ?: return@withContext emptyList()
+        ordered(ids, matchDao.moviesByTmdbIds(profileId, ids.take(MATCH_WINDOW))) { streamId }.take(limit)
+    }
+
+    suspend fun trendingSeries(profileId: Long, limit: Int = 20): List<SeriesEntity> = withContext(Dispatchers.IO) {
+        val ids = idsFor("trending/tv/week") ?: return@withContext emptyList()
+        ordered(ids, matchDao.seriesByTmdbIds(profileId, ids.take(MATCH_WINDOW))) { seriesId }.take(limit)
+    }
+
+    /** Detay ekranı: TMDB önerilerinden katalogda olanlar. */
+    suspend fun similarMovies(profileId: Long, streamId: String): List<VodEntity> = withContext(Dispatchers.IO) {
+        val tmdbId = metadataDao.get(TmdbMetadataEntity.movieKey(streamId))?.tmdbId ?: return@withContext emptyList()
+        val ids = idsFor("movie/$tmdbId/recommendations") ?: return@withContext emptyList()
+        ordered(ids, matchDao.moviesByTmdbIds(profileId, ids)) { this.streamId }.filter { it.streamId != streamId }
+    }
+
+    suspend fun similarSeries(profileId: Long, seriesId: String): List<SeriesEntity> = withContext(Dispatchers.IO) {
+        val tmdbId = metadataDao.get(TmdbMetadataEntity.tvKey(seriesId))?.tmdbId ?: return@withContext emptyList()
+        val ids = idsFor("tv/$tmdbId/recommendations") ?: return@withContext emptyList()
+        ordered(ids, matchDao.seriesByTmdbIds(profileId, ids)) { this.seriesId }.filter { it.seriesId != seriesId }
+    }
+
+    /** TMDB sırasını korur; aynı TMDB kimliğine bağlı birden fazla kopyadan birini alır. */
+    private suspend fun <T> ordered(ids: List<Long>, items: List<T>, idOf: T.() -> String): List<T> {
+        if (items.isEmpty()) return emptyList()
+        val keyPrefix = if (items.first() is VodEntity) "movie:" else "tv:"
+        val tmdbByKey = matchDao.tmdbIdsFor(items.map { keyPrefix + it.idOf() }).associate { it.contentKey to it.tmdbId }
+        val rank = ids.withIndex().associate { (i, id) -> id to i }
+        return items
+            .mapNotNull { item -> tmdbByKey[keyPrefix + item.idOf()]?.let { item to it } }
+            .sortedBy { (_, tmdb) -> rank[tmdb] ?: Int.MAX_VALUE }
+            .distinctBy { (_, tmdb) -> tmdb }
+            .map { it.first }
+    }
+
+    private suspend fun idsFor(path: String): List<Long>? {
+        idCache[path]?.takeIf { System.currentTimeMillis() - it.at < LIST_TTL_MS }?.let { return it.ids }
+        val credential = preferences.tmdbCredential()
+        if (credential.isBlank) return null
+        return try {
+            val pages = (1..2).mapNotNull { page ->
+                tmdbCall {
+                    val body = api.tmdbGet(
+                        url = "$TMDB_BASE$path",
+                        authorization = credential.header(),
+                        apiKey = credential.queryKey(),
+                        page = page
+                    ).string()
+                    json.decodeFromString<TmdbIdPage>(body)
+                }
+            }
+            pages.flatMap { it.results.orEmpty().mapNotNull { r -> r.id } }.distinct()
+                .also { idCache[path] = CachedIds(it, System.currentTimeMillis()) }
+        } catch (e: IOException) {
+            null
+        } catch (e: TmdbAuthException) {
+            null
+        }
     }
 
     /** @return önbelleğe bir kayıt yazıldıysa true (eşleşme yok da bir sonuçtur). */
@@ -276,5 +347,7 @@ class RatingRepository @Inject constructor(
         private const val TAG = "RatingRepository"
         private const val PARALLEL_REQUESTS = 4
         private const val BATCH = 40
+        private const val LIST_TTL_MS = 6 * 60 * 60 * 1000L
+        private const val MATCH_WINDOW = 400
     }
 }

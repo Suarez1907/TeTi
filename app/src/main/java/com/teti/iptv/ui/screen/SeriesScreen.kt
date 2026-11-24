@@ -42,6 +42,9 @@ import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.domain.catalog.CatalogSort
 import com.teti.iptv.ui.components.CatalogHeaderActions
 import com.teti.iptv.ui.components.CategoryChipsRow
+import com.teti.iptv.ui.components.ContinueCard
+import com.teti.iptv.ui.components.remainingLabel
+import com.teti.iptv.data.local.entity.WatchHistoryEntity
 import com.teti.iptv.ui.components.EmptyHint
 import com.teti.iptv.ui.components.PosterCard
 import com.teti.iptv.ui.components.RatingBadge
@@ -60,6 +63,7 @@ import com.teti.iptv.ui.viewmodel.SeriesViewModel
 @Composable
 fun SeriesScreen(
     onSeriesClick: (SeriesEntity) -> Unit,
+    onResume: (WatchHistoryEntity) -> Unit,
     viewModel: SeriesViewModel = hiltViewModel()
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
@@ -71,6 +75,8 @@ fun SeriesScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val topRated by viewModel.topRated.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
+    val continueWatching by viewModel.continueWatching.collectAsState()
+    val trending by viewModel.trending.collectAsState()
     val seriesPaging = viewModel.seriesPaging.collectAsLazyPagingItems()
     val device = rememberDeviceProfile()
     val discover = selectedCategory == CatalogSort.CATEGORY_ALL &&
@@ -129,6 +135,41 @@ fun SeriesScreen(
                     if (hero != null) {
                         item(span = { GridItemSpan(maxLineSpan) }, contentType = "hero") {
                             SeriesHero(series = hero, onOpen = { onSeriesClick(hero) })
+                        }
+                    }
+                    if (continueWatching.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, contentType = "continue") {
+                            Column {
+                                SectionTitle("Kaldığın yerden devam et")
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(continueWatching, key = { it.contentId }) { entry ->
+                                        ContinueCard(
+                                            title = entry.title,
+                                            imageUrl = entry.posterUrl,
+                                            progress = entry.progress,
+                                            remainingText = remainingLabel(entry.positionMs, entry.durationMs),
+                                            onClick = { onResume(entry) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (trending.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, contentType = "row") {
+                            Column {
+                                SectionTitle("Bu hafta trend")
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(trending, key = { "trend-" + it.seriesId }) { item ->
+                                        PosterCard(
+                                            title = item.title,
+                                            posterUrl = item.posterUrl,
+                                            rating = item.imdbRating,
+                                            onClick = { onSeriesClick(item) }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     if (topRated.isNotEmpty()) {

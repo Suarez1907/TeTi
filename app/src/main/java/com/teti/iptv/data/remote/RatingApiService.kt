@@ -29,7 +29,8 @@ interface RatingApiService {
         @Query("query") query: String? = null,
         @Query("year") year: Int? = null,
         @Query("first_air_date_year") firstAirYear: Int? = null,
-        @Query("append_to_response") append: String? = null
+        @Query("append_to_response") append: String? = null,
+        @Query("page") page: Int? = null
     ): ResponseBody
 
     companion object {

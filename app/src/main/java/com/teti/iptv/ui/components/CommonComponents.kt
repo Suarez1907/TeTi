@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -115,7 +118,7 @@ fun GlassSurface(
     )
 }
 
-/** Beyaz zemin + siyah metin ana aksiyon (Netflix / Apple TV+ standardı). */
+/** Beyaz zemin + siyah metin ana aksiyon butonu. */
 @Composable
 fun PrimaryActionButton(
     text: String,
@@ -176,7 +179,7 @@ fun RatingBadge(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.clearAndSetSemantics { contentDescription = "TMDB puanı ${formatRating(rating)}" },
         color = Color.Black.copy(alpha = 0.72f),
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -257,7 +260,8 @@ fun PosterCard(
             if (!posterUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = posterUrl,
-                    contentDescription = title,
+                    // Başlık aşağıda metin olarak var; TalkBack iki kez okumasın.
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -310,4 +314,64 @@ fun EmptyHint(text: String, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(24.dp)
         )
     }
+}
+
+/** "Devam et" kartı: yatay görsel, başlık ve izlenen kısmı gösteren kırmızı çubuk. */
+@Composable
+fun ContinueCard(
+    title: String,
+    imageUrl: String?,
+    progress: Float,
+    remainingText: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(200.dp)
+            .tetiClickable(shape = RoundedCornerShape(12.dp), onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(TeTiGlass)
+                .border(1.dp, TeTiBorder, RoundedCornerShape(12.dp))
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = TeTiWhite)
+            }
+            ThinProgress(
+                fraction = progress,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(title, color = TeTiText, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        remainingText?.let { Text(it, color = TeTiMuted, style = MaterialTheme.typography.labelMedium) }
+    }
+}
+
+fun remainingLabel(positionMs: Long, durationMs: Long): String? {
+    if (durationMs <= 0) return null
+    val minutes = ((durationMs - positionMs) / 60_000L).coerceAtLeast(1L)
+    return "$minutes dk kaldı"
 }

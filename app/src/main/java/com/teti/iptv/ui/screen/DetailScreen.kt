@@ -62,6 +62,7 @@ import com.teti.iptv.domain.model.XtreamEpisode
 import com.teti.iptv.ui.components.GlassIconButton
 import com.teti.iptv.ui.components.GlassSurface
 import com.teti.iptv.ui.components.PillChip
+import com.teti.iptv.ui.components.PosterCard
 import com.teti.iptv.ui.components.PrimaryActionButton
 import com.teti.iptv.ui.components.formatRating
 import com.teti.iptv.ui.components.tetiClickable
@@ -79,6 +80,7 @@ fun VodDetailScreen(
     streamId: String,
     onBack: () -> Unit,
     onPlay: (url: String, title: String) -> Unit,
+    onOpenMovie: (String) -> Unit = {},
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val decodedId = NavArgs.decodeId(streamId)
@@ -86,6 +88,7 @@ fun VodDetailScreen(
     val meta by viewModel.vodMeta.collectAsState()
     val status by viewModel.vodStatus.collectAsState()
     val metaLoading by viewModel.metaLoading.collectAsState()
+    val similar by viewModel.similarMovies.collectAsState()
 
     LaunchedEffect(decodedId) { viewModel.loadVod(decodedId) }
 
@@ -114,6 +117,7 @@ fun VodDetailScreen(
                 )
                 Spacer(Modifier.height(20.dp))
                 MetadataBlock(meta = meta, fallbackPlot = null, loading = metaLoading)
+                SimilarRail(similar.map { Triple(it.streamId, it.title, it.posterUrl) to it.imdbRating }, onOpenMovie)
             }
         }
     }
@@ -124,6 +128,7 @@ fun SeriesDetailScreen(
     seriesId: String,
     onBack: () -> Unit,
     onPlayEpisode: (url: String, title: String, contentId: String) -> Unit,
+    onOpenSeries: (String) -> Unit = {},
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val decodedId = NavArgs.decodeId(seriesId)
@@ -133,6 +138,7 @@ fun SeriesDetailScreen(
     val metaLoading by viewModel.metaLoading.collectAsState()
     val seriesInfo by viewModel.seriesInfo.collectAsState()
     val selectedSeason by viewModel.selectedSeasonNumber.collectAsState()
+    val similar by viewModel.similarSeries.collectAsState()
 
     LaunchedEffect(decodedId) { viewModel.loadSeries(decodedId) }
 
@@ -194,6 +200,7 @@ fun SeriesDetailScreen(
                     Text("Bölümler yükleniyor…", color = TeTiMuted, style = MaterialTheme.typography.bodyMedium)
                 }
                 episodes.forEach { ep -> EpisodeRow(ep, onClick = { play(ep) }) }
+                SimilarRail(similar.map { Triple(it.seriesId, it.title, it.posterUrl) to it.imdbRating }, onOpenSeries)
             }
         }
     }
@@ -444,6 +451,20 @@ private fun EpisodeRow(ep: XtreamEpisode, onClick: () -> Unit) {
                     Text(it, color = TeTiMuted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
+        }
+    }
+}
+
+/** TMDB önerilerinden katalogda bulunanlar. */
+@Composable
+private fun SimilarRail(items: List<Pair<Triple<String, String, String?>, Float?>>, onOpen: (String) -> Unit) {
+    if (items.isEmpty()) return
+    Spacer(Modifier.height(24.dp))
+    Text("Benzer içerikler", color = TeTiText, style = MaterialTheme.typography.titleMedium)
+    Spacer(Modifier.height(8.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(items, key = { it.first.first }) { (info, rating) ->
+            PosterCard(title = info.second, posterUrl = info.third, rating = rating, onClick = { onOpen(info.first) })
         }
     }
 }

@@ -41,6 +41,8 @@ class StreamingXtreamParser {
                 var categoryId = ""
                 var logoUrl: String? = null
                 var epgChannelId: String? = null
+                var tvArchive = false
+                var archiveDays = 0
 
                 reader.beginObject()
                 while (reader.hasNext()) {
@@ -50,6 +52,8 @@ class StreamingXtreamParser {
                         "category_id" -> categoryId = readSafeString(reader)
                         "stream_icon" -> logoUrl = readSafeString(reader).ifBlank { null }
                         "epg_channel_id" -> epgChannelId = readSafeString(reader).ifBlank { null }
+                        "tv_archive" -> tvArchive = readSafeString(reader).trim() in setOf("1", "true")
+                        "tv_archive_duration" -> archiveDays = readSafeString(reader).trim().toIntOrNull() ?: 0
                         else -> reader.skipValue()
                     }
                 }
@@ -65,7 +69,9 @@ class StreamingXtreamParser {
                             streamUrl = "$cleanHost/live/$encodedUsername/$encodedPassword/$streamId.ts",
                             logoUrl = logoUrl,
                             epgChannelId = epgChannelId,
-                            sortOrder = sortIndex++
+                            sortOrder = sortIndex++,
+                            tvArchive = tvArchive && archiveDays > 0,
+                            archiveDays = archiveDays
                         )
                     )
                     if (batch.size >= BATCH_SIZE) {

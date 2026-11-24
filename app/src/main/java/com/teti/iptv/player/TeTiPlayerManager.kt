@@ -2,6 +2,9 @@ package com.teti.iptv.player
 
 import android.content.Context
 import androidx.annotation.OptIn
+import androidx.media3.cast.Cast
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.RemoteCastPlayer
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -62,9 +65,49 @@ class TeTiPlayerManager @Inject constructor(
     private val _playbackError = MutableStateFlow<String?>(null)
     val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
 
+    private var castPlayer: CastPlayer? = null
+
+    private val _isCasting = MutableStateFlow(false)
+    val isCasting: StateFlow<Boolean> = _isCasting.asStateFlow()
+
     fun getPlayer(): ExoPlayer {
         return exoPlayer ?: initializePlayer()
     }
+
+    /**
+     * Ekrana ve kontrollere verilen oynatıcı. Cast kullanılabiliyorsa yerel ExoPlayer'ı saran
+     * CastPlayer: Chromecast oturumu açılınca oynatma (konumuyla) otomatik cihaza aktarılır.
+     * Google Play Hizmetleri olmayan cihazlarda (ör. Fire TV) doğrudan ExoPlayer döner.
+     */
+    fun getControlPlayer(): Player {
+        castPlayer?.let { return it }
+        val local = getPlayer()
+        val built = runCatching {
+            CastPlayer.Builder(context)
+                .setLocalPlayer(local)
+                .setRemotePlayer(RemoteCastPlayer.Builder(context).setMediaItemConverter(IptvCastConverter()).build())
+                .build()
+        }.getOrNull() ?: return local
+        built.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                _isPlaying.value = playing
+            }
+
+            override fun onDeviceInfoChanged(deviceInfo: androidx.media3.common.DeviceInfo) {
+                _isCasting.value = deviceInfo.playbackType == androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE
+            }
+        })
+        castPlayer = built
+        return built
+    }
+
+    private fun activePlayer(): Player? = castPlayer ?: exoPlayer
+
+    /** Cast bağlamı yüklendiyse true (Google Play Hizmetleri olmayan cihazlarda false). */
+    fun isCastAvailable(): Boolean = runCatching {
+        val cast = Cast.getSingletonInstance(context)
+        !cast.needsInitialization() && cast.castContextLoadFailure == null
+    }.getOrDefault(false)
 
     private fun initializePlayer(): ExoPlayer {
         val bufferConfig = preferences.bufferProfile.value
@@ -148,7 +191,8 @@ class TeTiPlayerManager @Inject constructor(
         _playbackError.value = null
         _currentPosition.value = 0L
         _duration.value = 0L
-        val player = getPlayer()
+        // Chromecast'e bağlıyken yeni içerik (ör. kanal değişimi) doğrudan cihaza gider.
+        val player: Player = activePlayer() ?: getPlayer()
         val mediaItem = MediaItem.Builder()
             .setUri(url)
             .setMimeType(inferMimeType(url))
@@ -159,7 +203,7 @@ class TeTiPlayerManager @Inject constructor(
     }
 
     fun updatePosition() {
-        val player = exoPlayer ?: return
+        val player = activePlayer() ?: return
         _currentPosition.value = player.currentPosition.coerceAtLeast(0L)
         _duration.value = player.duration.coerceAtLeast(0L)
     }
@@ -171,11 +215,11 @@ class TeTiPlayerManager @Inject constructor(
     }
 
     fun seekTo(positionMs: Long) {
-        exoPlayer?.seekTo(positionMs)
+        activePlayer()?.seekTo(positionMs)
     }
 
     fun togglePlayPause() {
-        exoPlayer?.let {
+        activePlayer()?.let {
             if (it.isPlaying) it.pause() else it.play()
         }
     }
@@ -262,6 +306,9 @@ class TeTiPlayerManager @Inject constructor(
     }
 
     fun release() {
+        castPlayer?.release()
+        castPlayer = null
+        _isCasting.value = false
         exoPlayer?.release()
         exoPlayer = null
         trackSelector = null

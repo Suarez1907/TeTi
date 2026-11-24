@@ -83,4 +83,31 @@ interface TmdbMetadataDao {
     suspend fun catalogSize(profileId: Long): Int
 }
 
+@Dao
+interface TmdbMatchDao {
+    /** TMDB kimlikleri verilen filmlerden katalogda bulunanlar. */
+    @Query(
+        """
+        SELECT vod_movies.* FROM vod_movies
+        JOIN tmdb_metadata m ON m.contentKey = 'movie:' || vod_movies.streamId
+        WHERE vod_movies.profileId = :profileId AND m.tmdbId IN (:tmdbIds)
+        """
+    )
+    suspend fun moviesByTmdbIds(profileId: Long, tmdbIds: List<Long>): List<com.teti.iptv.data.local.entity.VodEntity>
+
+    @Query(
+        """
+        SELECT vod_series.* FROM vod_series
+        JOIN tmdb_metadata m ON m.contentKey = 'tv:' || vod_series.seriesId
+        WHERE vod_series.profileId = :profileId AND m.tmdbId IN (:tmdbIds)
+        """
+    )
+    suspend fun seriesByTmdbIds(profileId: Long, tmdbIds: List<Long>): List<com.teti.iptv.data.local.entity.SeriesEntity>
+
+    @Query("SELECT contentKey, tmdbId FROM tmdb_metadata WHERE contentKey IN (:keys) AND tmdbId IS NOT NULL")
+    suspend fun tmdbIdsFor(keys: List<String>): List<KeyTmdbId>
+}
+
+data class KeyTmdbId(val contentKey: String, val tmdbId: Long)
+
 data class PendingTitle(val id: String, val title: String)

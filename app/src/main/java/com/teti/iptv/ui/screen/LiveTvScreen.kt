@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarViewWeek
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +48,7 @@ import com.teti.iptv.data.local.entity.ChannelEntity
 import com.teti.iptv.data.local.entity.EpgProgramEntity
 import com.teti.iptv.ui.components.CategoryChipsRow
 import com.teti.iptv.ui.components.EmptyHint
+import com.teti.iptv.ui.components.GlassIconButton
 import com.teti.iptv.ui.components.GlassSurface
 import com.teti.iptv.ui.components.LiveDot
 import com.teti.iptv.ui.components.ScreenHeading
@@ -67,6 +70,8 @@ import java.util.Locale
 @Composable
 fun LiveTvScreen(
     onPlayChannel: (ChannelEntity) -> Unit,
+    onOpenGuide: () -> Unit,
+    onOpenMultiView: () -> Unit,
     viewModel: LiveTvViewModel = hiltViewModel()
 ) {
     val activeProfile by viewModel.activeProfile.collectAsState()
@@ -81,7 +86,12 @@ fun LiveTvScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        ScreenHeading(title = "Canlı TV", subtitle = activeProfile?.name ?: "Profil bekleniyor")
+        ScreenHeading(title = "Canlı TV", subtitle = activeProfile?.name ?: "Profil bekleniyor") {
+            if (activeProfile != null) {
+                GlassIconButton(Icons.Default.GridView, "Çoklu ekran", onOpenMultiView, size = 44.dp)
+                GlassIconButton(Icons.Default.CalendarViewWeek, "TV rehberi", onOpenGuide, size = 44.dp)
+            }
+        }
         if (activeProfile == null) {
             EmptyHint("Lütfen Ayarlar sekmesinden bir profil ekleyin.")
             return

@@ -1,5 +1,28 @@
 package com.teti.iptv.ui.screen
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Password
+import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -107,7 +130,27 @@ fun SettingsScreen(
     val tmdbProgress by viewModel.tmdbProgress.collectAsState()
     val tmdbRunning by viewModel.tmdbRunning.collectAsState()
 
+    val parentalEnabled by viewModel.parentalEnabled.collectAsState()
+    val lockedCategories by viewModel.lockedCategories.collectAsState()
+    val sessionUnlocked by viewModel.sessionUnlocked.collectAsState()
+    val allCategories by viewModel.allCategories.collectAsState()
+    val subtitleScale by viewModel.subtitleScale.collectAsState()
+    val subtitleBackground by viewModel.subtitleBackground.collectAsState()
+    val backupStatus by viewModel.backupStatus.collectAsState()
+    val cleanupStatus by viewModel.cleanupStatus.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+
     var showAddDialog by remember { mutableStateOf(false) }
+    var pinDialog by remember { mutableStateOf<PinAction?>(null) }
+    var showCategoryPicker by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let(viewModel::exportBackup)
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importBackup)
+    }
 
     Column(
         modifier = Modifier
@@ -170,6 +213,14 @@ fun SettingsScreen(
                 }
             }
             syncStatus?.let { StatusText(it) }
+            if (activeProfile != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SecondaryButton("Tekrar eden kanalları gizle", Icons.Default.CleaningServices, busy = false, onClick = viewModel::hideDuplicateChannels)
+                    SecondaryButton("Gizlenenleri göster", Icons.Default.Visibility, busy = false, onClick = viewModel::unhideAllChannels)
+                }
+                cleanupStatus?.let { StatusText(it) }
+            }
         }
 
         // --- EPG (TV REHBERİ) ---
@@ -244,6 +295,67 @@ fun SettingsScreen(
                 checked = useSoftwareDecoder,
                 onCheckedChange = viewModel::setSoftwareDecoder
             )
+            Spacer(modifier = Modifier.height(12.dp))
+            FieldLabel("Altyazı boyutu")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(1f to "Sistem", 1.25f to "Büyük", 1.5f to "Çok büyük").forEach { (scale, label) ->
+                    PillChip(text = label, selected = subtitleScale == scale, onClick = { viewModel.setSubtitleScale(scale) })
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            SwitchRow(
+                title = "Altyazı arka planı",
+                subtitle = "Okunabilirlik için yazının arkasına koyu bant",
+                checked = subtitleBackground,
+                onCheckedChange = viewModel::setSubtitleBackground
+            )
+        }
+
+        // --- EBEVEYN KİLİDİ ---
+        SettingsCard(icon = Icons.Default.Lock, title = "Ebeveyn kilidi") {
+            Text(
+                when {
+                    !parentalEnabled -> "PIN belirleyin ve kilitlenecek kategorileri seçin. Kilitli kategoriler tüm listelerden ve aramadan gizlenir."
+                    sessionUnlocked -> "Kilit bu oturum için açık; kilitli kategoriler görünüyor."
+                    else -> "${lockedCategories.size} kategori kilitli ve gizli."
+                },
+                color = TeTiMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!parentalEnabled) {
+                    PrimaryActionButton("PIN belirle", Icons.Default.Lock, onClick = { pinDialog = PinAction.SET }, height = 44.dp)
+                } else {
+                    PrimaryActionButton("Kategorileri seç", Icons.Default.Checklist, onClick = { pinDialog = PinAction.EDIT_CATEGORIES }, height = 44.dp)
+                    if (sessionUnlocked) {
+                        SecondaryButton("Yeniden kilitle", Icons.Default.Lock, busy = false, onClick = viewModel::lockSession)
+                    } else {
+                        SecondaryButton("Bu oturumda aç", Icons.Default.LockOpen, busy = false, onClick = { pinDialog = PinAction.UNLOCK })
+                    }
+                    SecondaryButton("PIN'i değiştir", Icons.Default.Password, busy = false, onClick = { pinDialog = PinAction.CHANGE })
+                    SecondaryButton("PIN'i kaldır", Icons.Default.Delete, busy = false, onClick = { pinDialog = PinAction.REMOVE })
+                }
+            }
+        }
+
+        // --- YEDEKLEME ---
+        SettingsCard(icon = Icons.Default.Backup, title = "Yedekle ve geri yükle") {
+            Text(
+                "Profiller, favoriler, izleme geçmişi ve ayarlar tek bir dosyaya yazılır. Google Drive gibi bir konuma kaydederek cihazlar arasında taşıyabilirsiniz.",
+                color = TeTiMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryActionButton("Yedekle", Icons.Default.Upload, onClick = {
+                    exportLauncher.launch("teti-yedek-${SimpleDateFormat("yyyyMMdd", Locale.ROOT).format(Date())}.json")
+                }, height = 44.dp)
+                SecondaryButton("Geri yükle", Icons.Default.Download, busy = false, onClick = {
+                    importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                })
+            }
+            backupStatus?.let { StatusText(it) }
         }
 
         // --- PUAN SERVİSLERİ ---
@@ -308,6 +420,76 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // --- HAKKINDA ---
+        SettingsCard(icon = Icons.Default.Info, title = "Hakkında ve lisanslar") {
+            val version = remember {
+                runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "-"
+            }
+            Text("TeTi $version", color = TeTiText, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "TeTi içerik sağlamaz; yalnızca sizin eklediğiniz listeleri oynatır.",
+                color = TeTiMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                color = TeTiText,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Video çözme: FFmpeg (LGPL-2.1-or-later), put.io media3-ffmpeg-decoder (Apache-2.0). " +
+                    "Diğer bileşenler: AndroidX, Media3, Compose, Room, OkHttp, Retrofit, Coil, kotlinx.serialization (Apache-2.0).",
+                color = TeTiMuted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton("Gizlilik politikası", Icons.Default.Policy, busy = false, onClick = {
+                    uriHandler.openUri("https://github.com/Suarez1907/TeTi/blob/main/docs/privacy-policy.md")
+                })
+                SecondaryButton("FFmpeg kaynak kodu", Icons.Default.Code, busy = false, onClick = {
+                    uriHandler.openUri("https://github.com/putdotio/media3-ffmpeg-decoder")
+                })
+                SecondaryButton("TMDB", Icons.Default.Movie, busy = false, onClick = {
+                    uriHandler.openUri("https://www.themoviedb.org")
+                })
+            }
+        }
+    }
+
+    pinDialog?.let { action ->
+        PinDialog(
+            action = action,
+            onDismiss = { pinDialog = null },
+            onSubmit = { current, new ->
+                when (action) {
+                    PinAction.SET -> viewModel.setPin(new, null)
+                    PinAction.CHANGE -> viewModel.setPin(new, current)
+                    PinAction.UNLOCK -> if (viewModel.unlockSession(current)) null else "PIN yanlış"
+                    PinAction.REMOVE -> if (viewModel.removePin(current)) null else "PIN yanlış"
+                    PinAction.EDIT_CATEGORIES -> if (viewModel.unlockSession(current)) {
+                        showCategoryPicker = true
+                        null
+                    } else "PIN yanlış"
+                }
+            }
+        )
+    }
+
+    if (showCategoryPicker) {
+        CategoryLockDialog(
+            categories = allCategories,
+            locked = lockedCategories,
+            onDismiss = { showCategoryPicker = false },
+            onSave = {
+                viewModel.setLockedCategories(it)
+                viewModel.lockSession()
+                showCategoryPicker = false
+            }
+        )
     }
 
     if (showAddDialog) {
@@ -507,5 +689,107 @@ fun AddProfileDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("İptal", color = TeTiMuted) }
         }
+    )
+}
+
+private enum class PinAction(val title: String, val needsCurrent: Boolean, val needsNew: Boolean) {
+    SET("PIN belirle", needsCurrent = false, needsNew = true),
+    CHANGE("PIN'i değiştir", needsCurrent = true, needsNew = true),
+    UNLOCK("Kilidi aç", needsCurrent = true, needsNew = false),
+    REMOVE("PIN'i kaldır", needsCurrent = true, needsNew = false),
+    EDIT_CATEGORIES("PIN'i girin", needsCurrent = true, needsNew = false)
+}
+
+@Composable
+private fun PinDialog(action: PinAction, onDismiss: () -> Unit, onSubmit: (current: String, new: String) -> String?) {
+    var current by remember { mutableStateOf("") }
+    var new by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = TeTiGlass,
+        titleContentColor = TeTiText,
+        textContentColor = TeTiText,
+        title = { Text(action.title) },
+        text = {
+            Column {
+                if (action.needsCurrent) PinField("Mevcut PIN", current) { current = it }
+                if (action.needsNew) {
+                    PinField("Yeni PIN (4-8 rakam)", new) { new = it }
+                    PinField("Yeni PIN tekrar", repeat) { repeat = it }
+                }
+                error?.let { Text(it, color = TeTiRed, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                error = when {
+                    action.needsNew && new != repeat -> "PIN'ler eşleşmiyor"
+                    else -> onSubmit(current, new)
+                }
+                if (error == null) onDismiss()
+            }) { Text("Tamam", color = TeTiWhite) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("İptal", color = TeTiMuted) } }
+    )
+}
+
+@Composable
+private fun PinField(label: String, value: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { v -> onChange(v.filter(Char::isDigit).take(8)) },
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        colors = tetiFieldColors(),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    )
+}
+
+@Composable
+private fun CategoryLockDialog(
+    categories: List<String>,
+    locked: Set<String>,
+    onDismiss: () -> Unit,
+    onSave: (Set<String>) -> Unit
+) {
+    var selection by remember { mutableStateOf(locked) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = TeTiGlass,
+        titleContentColor = TeTiText,
+        textContentColor = TeTiText,
+        title = { Text("Kilitlenecek kategoriler") },
+        text = {
+            if (categories.isEmpty()) {
+                Text("Önce bir profil ekleyip senkronize edin.", color = TeTiMuted)
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                    items(categories, key = { it }) { cat ->
+                        val checked = cat in selection
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tetiClickable(shape = RoundedCornerShape(8.dp)) {
+                                    selection = if (checked) selection - cat else selection + cat
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { selection = if (it) selection + cat else selection - cat },
+                                colors = CheckboxDefaults.colors(checkedColor = TeTiWhite, checkmarkColor = TeTiOnWhite)
+                            )
+                            Text(cat, color = TeTiText, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(selection) }) { Text("Kaydet", color = TeTiWhite) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("İptal", color = TeTiMuted) } }
     )
 }

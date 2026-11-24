@@ -44,7 +44,7 @@ data class PlaybackItem(
 class PlayerViewModel @Inject constructor(
     private val playerManager: TeTiPlayerManager,
     private val repository: IptvRepository,
-    preferences: AppPreferences
+    private val preferences: AppPreferences
 ) : ViewModel() {
 
     val isPlaying: StateFlow<Boolean> = playerManager.isPlaying
@@ -54,7 +54,12 @@ class PlayerViewModel @Inject constructor(
     val duration: StateFlow<Long> = playerManager.duration
     val playbackError: StateFlow<String?> = playerManager.playbackError
 
-    fun getPlayer() = playerManager.getPlayer()
+    /** PlayerView ve kontroller için: Chromecast'e aktarımı destekleyen oynatıcı. */
+    fun getPlayer() = playerManager.getControlPlayer()
+    val isCasting: StateFlow<Boolean> = playerManager.isCasting
+    val castAvailable: Boolean get() = playerManager.isCastAvailable()
+    val subtitleScale: StateFlow<Float> = preferences.subtitleScale
+    val subtitleBackground: StateFlow<Boolean> = preferences.subtitleBackground
 
     private val _current = MutableStateFlow<PlaybackItem?>(null)
     val current: StateFlow<PlaybackItem?> = _current.asStateFlow()
@@ -135,7 +140,9 @@ class PlayerViewModel @Inject constructor(
         _current.value = item
         viewModelScope.launch {
             currentProfileId = repository.getActiveProfileOnce()?.id ?: 0L
-            val startPos = if (!item.isLive) repository.getWatchPosition(item.contentId) else 0L
+            val startPos = if (!item.isLive && !item.contentId.startsWith(CATCHUP_PREFIX)) {
+                repository.getWatchPosition(item.contentId)
+            } else 0L
             playerManager.play(item.url, startPos)
             startProgressTracking(item)
             startUiPositionTracking()
@@ -154,12 +161,18 @@ class PlayerViewModel @Inject constructor(
 
     private fun startProgressTracking(item: PlaybackItem) {
         progressTrackerJob?.cancel()
-        if (item.isLive) return
+        // Canlı yayın ve arşiv (catch-up) izlemeleri "devam et" rafına yazılmaz.
+        if (item.isLive || item.contentId.startsWith(CATCHUP_PREFIX)) return
 
         progressTrackerJob = viewModelScope.launch {
+            val movie = repository.getVodById(item.contentId)
+            val type = if (movie != null) WatchHistoryEntity.TYPE_MOVIE else WatchHistoryEntity.TYPE_EPISODE
+            // Bölüm kimliği "{diziId}_{bölümId}" biçiminde; dizinin görselini "devam et" kartında kullan.
+            val series = if (movie == null) repository.getSeriesById(item.contentId.substringBeforeLast("_")) else null
+            val poster = movie?.backdropUrl ?: movie?.posterUrl ?: series?.backdropUrl ?: series?.posterUrl ?: currentPoster
             while (isActive) {
                 delay(5000)
-                val player = playerManager.getPlayer()
+                val player = playerManager.getControlPlayer()
                 val pos = player.currentPosition
                 val dur = player.duration
                 if (dur > 0 && pos > 0) {
@@ -167,12 +180,13 @@ class PlayerViewModel @Inject constructor(
                         WatchHistoryEntity(
                             contentId = item.contentId,
                             profileId = currentProfileId,
-                            contentType = "VOD",
+                            contentType = type,
                             title = item.title,
-                            posterUrl = currentPoster,
+                            posterUrl = poster,
                             positionMs = pos,
                             durationMs = dur,
-                            lastWatchedAt = System.currentTimeMillis()
+                            lastWatchedAt = System.currentTimeMillis(),
+                            streamUrl = item.url
                         )
                     )
                 }
@@ -181,7 +195,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun seekBy(deltaMs: Long) {
-        val player = playerManager.getPlayer()
+        val player = playerManager.getControlPlayer()
         val upper = player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
         playerManager.seekTo((player.currentPosition + deltaMs).coerceIn(0L, upper))
     }
@@ -191,6 +205,10 @@ class PlayerViewModel @Inject constructor(
     fun selectAudio(track: TrackInfo) = playerManager.selectAudioTrack(track)
     fun selectSubtitle(track: TrackInfo?) = playerManager.selectSubtitleTrack(track)
     fun retry() = playerManager.retry()
+
+    companion object {
+        const val CATCHUP_PREFIX = "catchup:"
+    }
 
     override fun onCleared() {
         progressTrackerJob?.cancel()

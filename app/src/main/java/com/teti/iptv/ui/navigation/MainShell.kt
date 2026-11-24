@@ -31,6 +31,7 @@ import androidx.navigation.NavHostController
 import com.teti.iptv.data.local.entity.ChannelEntity
 import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.data.local.entity.VodEntity
+import com.teti.iptv.data.local.entity.WatchHistoryEntity
 import com.teti.iptv.ui.device.rememberDeviceProfile
 import com.teti.iptv.ui.screen.LiveTvScreen
 import com.teti.iptv.ui.screen.SearchScreen
@@ -139,12 +140,20 @@ fun MainShell(navController: NavHostController) {
                 beyondViewportPageCount = 0
             ) { page ->
                 when (page) {
-                    Screen.TAB_LIVE -> LiveTvScreen(onPlayChannel = { navController.openPlayer(it) })
+                    Screen.TAB_LIVE -> LiveTvScreen(
+                        onPlayChannel = { navController.openPlayer(it) },
+                        onOpenGuide = { navController.navigate(Screen.Guide.route) { launchSingleTop = true } },
+                        onOpenMultiView = { navController.navigate(Screen.MultiView.route) { launchSingleTop = true } }
+                    )
                     Screen.TAB_VOD -> VodScreen(
                         onMovieClick = { navController.openVod(it) },
-                        onPlayMovie = { navController.openMovie(it) }
+                        onPlayMovie = { navController.openMovie(it) },
+                        onResume = { navController.resume(it) }
                     )
-                    Screen.TAB_SERIES -> SeriesScreen(onSeriesClick = { navController.openSeries(it) })
+                    Screen.TAB_SERIES -> SeriesScreen(
+                        onSeriesClick = { navController.openSeries(it) },
+                        onResume = { navController.resume(it) }
+                    )
                     Screen.TAB_SEARCH -> SearchScreen(
                         onPlayChannel = { navController.openPlayer(it) },
                         onMovieClick = { navController.openVod(it) },
@@ -177,6 +186,16 @@ private fun NavHostController.openMovie(movie: VodEntity) {
             isLive = false
         )
     ) { launchSingleTop = true }
+}
+
+/** Devam et: adres kayıtlıysa doğrudan oynat (konum kaldığı yerden), yoksa film detayını aç. */
+private fun NavHostController.resume(entry: WatchHistoryEntity) {
+    val url = entry.streamUrl
+    if (url != null) {
+        navigate(Screen.Player.createRoute(url, entry.title, entry.contentId, isLive = false)) { launchSingleTop = true }
+    } else if (entry.contentType == WatchHistoryEntity.TYPE_MOVIE) {
+        navigate(Screen.VodDetail.createRoute(entry.contentId)) { launchSingleTop = true }
+    }
 }
 
 private fun NavHostController.openVod(movie: VodEntity) {

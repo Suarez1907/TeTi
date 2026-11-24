@@ -18,7 +18,8 @@ enum class BufferProfile(
         title = "Dengeli",
         minBufferMs = 15_000,
         maxBufferMs = 50_000,
-        bufferForPlaybackMs = 2_500,
+        // Kanal değiştirmede ilk görüntü daha hızlı gelsin.
+        bufferForPlaybackMs = 1_500,
         bufferForPlaybackAfterRebufferMs = 5_000
     ),
     HIGH_STABILITY(

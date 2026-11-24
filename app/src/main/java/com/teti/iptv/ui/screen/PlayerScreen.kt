@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
@@ -76,8 +77,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.cast.MediaRouteButton
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.teti.iptv.player.TrackInfo
 import com.teti.iptv.ui.components.ThinProgress
@@ -128,6 +132,9 @@ fun PlayerScreen(
     val current by viewModel.current.collectAsState()
     val program by viewModel.currentProgram.collectAsState()
     val clock by viewModel.epgClock.collectAsState()
+    val isCasting by viewModel.isCasting.collectAsState()
+    val subtitleScale by viewModel.subtitleScale.collectAsState()
+    val subtitleBackground by viewModel.subtitleBackground.collectAsState()
 
     val item = current ?: PlaybackItem(streamUrl, title, contentId, isLive)
     val live = item.isLive
@@ -290,6 +297,25 @@ fun PlayerScreen(
                     )
                 }
             },
+            update = { view ->
+                // Altyazı: sistem erişilebilirlik ayarları + kullanıcının büyütme/arka plan tercihi.
+                view.subtitleView?.apply {
+                    setUserDefaultStyle()
+                    if (subtitleBackground) {
+                        setStyle(
+                            CaptionStyleCompat(
+                                android.graphics.Color.WHITE,
+                                android.graphics.Color.argb(170, 0, 0, 0),
+                                android.graphics.Color.TRANSPARENT,
+                                CaptionStyleCompat.EDGE_TYPE_NONE,
+                                android.graphics.Color.TRANSPARENT,
+                                null
+                            )
+                        )
+                    }
+                    setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * subtitleScale)
+                }
+            },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -309,6 +335,17 @@ fun PlayerScreen(
                     TextButton(onClick = onBack) { Text("Geri", color = TeTiMuted) }
                     if (live) TextButton(onClick = { openDrawer() }) { Text("Kanallar", color = TeTiWhite) }
                 }
+            }
+        }
+
+        if (isCasting) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Default.Cast, contentDescription = null, tint = TeTiWhite, modifier = Modifier.size(56.dp))
+                Spacer(Modifier.height(8.dp))
+                Text("Chromecast'te oynatılıyor", color = TeTiText, style = MaterialTheme.typography.titleMedium)
             }
         }
 
@@ -370,6 +407,10 @@ fun PlayerScreen(
                         IconButton(onClick = { openDrawer() }) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Kanal listesi", tint = Color.White)
                         }
+                    }
+                    // Chromecast: cihaz seçici (Google Play Hizmetleri yoksa görünmez).
+                    if (remember { viewModel.castAvailable }) {
+                        MediaRouteButton(modifier = Modifier.size(48.dp))
                     }
                     IconButton(onClick = { showTrackDialog = true }) {
                         Icon(Icons.Default.Subtitles, contentDescription = "Ses ve Altyazı", tint = Color.White)
