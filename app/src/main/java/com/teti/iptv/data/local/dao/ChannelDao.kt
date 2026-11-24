@@ -20,11 +20,26 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE profileId = :profileId AND isFavorite = 1 AND isHidden = 0 ORDER BY sortOrder ASC, name ASC")
     fun getFavoriteChannelsPaging(profileId: Long): PagingSource<Int, ChannelEntity>
 
+    @androidx.room.RawQuery(observedEntities = [ChannelEntity::class])
+    fun getChannelsPagingRaw(query: androidx.sqlite.db.SupportSQLiteQuery): PagingSource<Int, ChannelEntity>
+
     @Query("SELECT DISTINCT categoryName FROM channels WHERE profileId = :profileId ORDER BY categoryName ASC")
     fun getCategories(profileId: Long): Flow<List<String>>
 
+    @Query(
+        """
+        SELECT channels.* FROM channels JOIN channels_fts ON channels.rowid = channels_fts.rowid
+        WHERE channels_fts MATCH :match AND channels.profileId = :profileId AND channels.isHidden = 0
+        LIMIT 100
+        """
+    )
+    fun searchChannelsFts(profileId: Long, match: String): Flow<List<ChannelEntity>>
+
     @Query("SELECT * FROM channels WHERE profileId = :profileId AND (name LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') AND isHidden = 0 LIMIT 100")
     fun searchChannels(profileId: Long, query: String): Flow<List<ChannelEntity>>
+
+    @Query("SELECT * FROM channels WHERE streamId = :streamId LIMIT 1")
+    suspend fun getById(streamId: String): ChannelEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(channels: List<ChannelEntity>)
@@ -49,6 +64,15 @@ interface ChannelDao {
         deleteByProfile(profileId)
         insertAll(channels)
     }
+
+    @Query("SELECT streamId AS id, name, sortOrder FROM channels WHERE profileId = :profileId AND isHidden = 0")
+    suspend fun visibleRefs(profileId: Long): List<com.teti.iptv.domain.channels.ChannelRef>
+
+    @Query("UPDATE channels SET isHidden = 1 WHERE streamId IN (:ids)")
+    suspend fun hide(ids: List<String>)
+
+    @Query("UPDATE channels SET isHidden = 0 WHERE profileId = :profileId")
+    suspend fun unhideAll(profileId: Long): Int
 
     @Query("SELECT COUNT(*) FROM channels WHERE profileId = :profileId")
     suspend fun countByProfile(profileId: Long): Int

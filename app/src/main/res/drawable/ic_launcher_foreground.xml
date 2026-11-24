@@ -6,12 +6,12 @@
     android:viewportHeight="108">
     <!-- TeTi mark: the crossbar of a T, with a play triangle as the stem. -->
     <path
-        android:fillColor="#F4F1EA"
+        android:fillColor="#FAFAFA"
         android:pathData="M30,34h48a5,5 0,0 1,0 10h-48a5,5 0,0 1,0 -10z" />
     <path
-        android:fillColor="#FF8A3D"
+        android:fillColor="#E50914"
         android:pathData="M40,50 L74,66 L40,82 Z" />
     <path
-        android:fillColor="#5CE1E6"
+        android:fillColor="#FFFFFF"
         android:pathData="M78,36m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
 </vector>

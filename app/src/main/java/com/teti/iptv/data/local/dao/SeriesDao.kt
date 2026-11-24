@@ -37,6 +37,15 @@ interface SeriesDao {
     @RawQuery(observedEntities = [SeriesEntity::class])
     fun getSeriesPagingRaw(query: SupportSQLiteQuery): PagingSource<Int, SeriesEntity>
 
+    @Query(
+        """
+        SELECT vod_series.* FROM vod_series JOIN series_fts ON vod_series.rowid = series_fts.rowid
+        WHERE series_fts MATCH :match AND vod_series.profileId = :profileId
+        LIMIT 100
+        """
+    )
+    fun searchSeriesFts(profileId: Long, match: String): Flow<List<SeriesEntity>>
+
     @Query("SELECT * FROM vod_series WHERE profileId = :profileId AND (title LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') LIMIT 100")
     fun searchSeries(profileId: Long, query: String): Flow<List<SeriesEntity>>
 
@@ -53,7 +62,7 @@ interface SeriesDao {
     suspend fun setFavorite(seriesId: String, isFavorite: Boolean)
 
     @Query("UPDATE vod_series SET imdbRating = :rating WHERE seriesId = :seriesId")
-    suspend fun updateRating(seriesId: String, rating: Float)
+    suspend fun updateRating(seriesId: String, rating: Float?)
 
     @Query("SELECT seriesId FROM vod_series WHERE profileId = :profileId AND isFavorite = 1")
     suspend fun getFavoriteIds(profileId: Long): List<String>

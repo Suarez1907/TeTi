@@ -9,10 +9,23 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.teti.iptv.domain.catalog.CatalogQuery
 import com.teti.iptv.domain.catalog.CatalogSort
+import com.teti.iptv.domain.epg.EpgOffset
+import com.teti.iptv.domain.epg.CatchupUrl
+import com.teti.iptv.worker.BackgroundScheduler
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.teti.iptv.domain.search.FtsQuery
+import com.teti.iptv.domain.channels.ChannelDeduper
 import com.teti.iptv.data.local.TeTiDatabase
 import com.teti.iptv.data.local.dao.ChannelDao
 import com.teti.iptv.data.local.dao.EpgDao
+import com.teti.iptv.data.local.AppPreferences
 import com.teti.iptv.data.local.dao.PlaylistDao
+import com.teti.iptv.data.local.dao.TmdbMetadataDao
 import com.teti.iptv.data.local.dao.SeriesDao
 import com.teti.iptv.data.local.dao.VodDao
 import com.teti.iptv.data.local.dao.WatchHistoryDao
@@ -46,6 +59,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class IptvRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -60,7 +74,10 @@ class IptvRepository @Inject constructor(
     private val xmltvParser: StreamingXmltvParser,
     private val okHttpClient: OkHttpClient,
     private val json: Json,
-    private val database: TeTiDatabase
+    private val database: TeTiDatabase,
+    private val tmdbMetadataDao: TmdbMetadataDao,
+    private val preferences: AppPreferences,
+    private val scheduler: BackgroundScheduler
 ) {
     private fun createXtreamApi(baseUrl: String): XtreamApiService {
         val cleanUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
@@ -86,19 +103,42 @@ class IptvRepository @Inject constructor(
     suspend fun setActiveProfile(profileId: Long) = playlistDao.setActiveProfile(profileId)
 
     // --- KANALLAR (CANLI TV) ---
-    fun getChannelsPaged(profileId: Long, category: String? = null): Flow<PagingData<ChannelEntity>> {
-        return Pager(PagingConfig(pageSize = 50, prefetchDistance = 15, enablePlaceholders = false)) {
-            if (category.isNullOrBlank() || category == "Tümü") {
-                channelDao.getChannelsPaging(profileId)
-            } else if (category == "Favoriler") {
-                channelDao.getFavoriteChannelsPaging(profileId)
-            } else {
-                channelDao.getChannelsByCategoryPaging(profileId, category)
-            }
-        }.flow
+    // Ebeveyn kilidindeki kategoriler tüm listelerden, aramadan ve raflardan düşülür.
+    private val hidden: StateFlow<Set<String>> get() = preferences.hiddenCategories
+
+    private fun <T> Flow<List<T>>.visible(category: (T) -> String): Flow<List<T>> =
+        combine(this, hidden) { items, h -> if (h.isEmpty()) items else items.filter { category(it) !in h } }
+
+    private fun Flow<List<String>>.visibleCategories(): Flow<List<String>> =
+        combine(this, hidden) { cats, h -> if (h.isEmpty()) cats else cats.filter { it !in h } }
+
+    fun getChannelsPaged(profileId: Long, category: String? = null): Flow<PagingData<ChannelEntity>> =
+        hidden.flatMapLatest { excluded ->
+            val bound = CatalogQuery.channels(profileId, category, excluded)
+            Pager(PagingConfig(pageSize = 50, prefetchDistance = 15, enablePlaceholders = false)) {
+                channelDao.getChannelsPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
+            }.flow
+        }
+
+    /** Aynı kanalın kalite/önek kopyalarını gizler. @return gizlenen kanal sayısı. */
+    suspend fun hideDuplicateChannels(profileId: Long): Int = withContext(Dispatchers.IO) {
+        val toHide = ChannelDeduper.duplicatesToHide(channelDao.visibleRefs(profileId)).toList()
+        toHide.chunked(500).forEach { channelDao.hide(it) }
+        toHide.size
     }
 
-    fun getChannelCategories(profileId: Long): Flow<List<String>> = channelDao.getCategories(profileId)
+    suspend fun unhideAllChannels(profileId: Long): Int = withContext(Dispatchers.IO) { channelDao.unhideAll(profileId) }
+
+    suspend fun getChannelById(streamId: String): ChannelEntity? = channelDao.getById(streamId)
+
+    fun getChannelCategories(profileId: Long): Flow<List<String>> = channelDao.getCategories(profileId).visibleCategories()
+
+    /** Ayarlar'daki kilit seçimi için: gizlenenler dahil tüm kategoriler. */
+    fun getAllCategories(profileId: Long): Flow<List<String>> = combine(
+        channelDao.getCategories(profileId),
+        vodDao.getCategories(profileId),
+        seriesDao.getCategories(profileId)
+    ) { a, b, c -> (a + b + c).distinct().sorted() }
     suspend fun toggleChannelFavorite(channel: ChannelEntity) {
         channelDao.setFavorite(channel.streamId, !channel.isFavorite)
     }
@@ -110,23 +150,27 @@ class IptvRepository @Inject constructor(
         year: Int? = null,
         sort: CatalogSort = CatalogSort.RECENTLY_ADDED
     ): Flow<PagingData<VodEntity>> {
-        val bound = CatalogQuery.vod(profileId, category, year, sort)
-        return Pager(
-            PagingConfig(
-                pageSize = 48,
-                prefetchDistance = 12,
-                enablePlaceholders = false,
-                maxSize = 240
-            )
-        ) {
-            vodDao.getVodPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
-        }.flow
+        return hidden.flatMapLatest { excluded ->
+            val bound = CatalogQuery.vod(profileId, category, year, sort, excluded)
+            Pager(
+                PagingConfig(
+                    pageSize = 48,
+                    prefetchDistance = 12,
+                    enablePlaceholders = false,
+                    maxSize = 240
+                )
+            ) {
+                vodDao.getVodPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
+            }.flow
+        }
     }
 
-    fun getVodCategories(profileId: Long): Flow<List<String>> = vodDao.getCategories(profileId)
+    fun getVodCategories(profileId: Long): Flow<List<String>> = vodDao.getCategories(profileId).visibleCategories()
     fun getVodYears(profileId: Long): Flow<List<Int>> = vodDao.getReleaseYears(profileId)
-    fun getTopRatedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> = vodDao.getTopRated(profileId, limit)
-    fun getRecentlyAddedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> = vodDao.getRecentlyAdded(profileId, limit)
+    fun getTopRatedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> =
+        vodDao.getTopRated(profileId, limit).visible { it.categoryName }
+    fun getRecentlyAddedMovies(profileId: Long, limit: Int = 20): Flow<List<VodEntity>> =
+        vodDao.getRecentlyAdded(profileId, limit).visible { it.categoryName }
     suspend fun getVodById(streamId: String): VodEntity? = vodDao.getById(streamId)
     fun getVodByIdFlow(streamId: String): Flow<VodEntity?> = vodDao.getByIdFlow(streamId)
     suspend fun toggleVodFavorite(vod: VodEntity) = vodDao.setFavorite(vod.streamId, !vod.isFavorite)
@@ -138,23 +182,27 @@ class IptvRepository @Inject constructor(
         year: Int? = null,
         sort: CatalogSort = CatalogSort.RECENTLY_ADDED
     ): Flow<PagingData<SeriesEntity>> {
-        val bound = CatalogQuery.series(profileId, category, year, sort)
-        return Pager(
-            PagingConfig(
-                pageSize = 48,
-                prefetchDistance = 12,
-                enablePlaceholders = false,
-                maxSize = 240
-            )
-        ) {
-            seriesDao.getSeriesPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
-        }.flow
+        return hidden.flatMapLatest { excluded ->
+            val bound = CatalogQuery.series(profileId, category, year, sort, excluded)
+            Pager(
+                PagingConfig(
+                    pageSize = 48,
+                    prefetchDistance = 12,
+                    enablePlaceholders = false,
+                    maxSize = 240
+                )
+            ) {
+                seriesDao.getSeriesPagingRaw(SimpleSQLiteQuery(bound.sql, bound.args.toTypedArray()))
+            }.flow
+        }
     }
 
-    fun getSeriesCategories(profileId: Long): Flow<List<String>> = seriesDao.getCategories(profileId)
+    fun getSeriesCategories(profileId: Long): Flow<List<String>> = seriesDao.getCategories(profileId).visibleCategories()
     fun getSeriesYears(profileId: Long): Flow<List<Int>> = seriesDao.getReleaseYears(profileId)
-    fun getTopRatedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> = seriesDao.getTopRated(profileId, limit)
-    fun getRecentlyAddedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> = seriesDao.getRecentlyAdded(profileId, limit)
+    fun getTopRatedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> =
+        seriesDao.getTopRated(profileId, limit).visible { it.categoryName }
+    fun getRecentlyAddedSeries(profileId: Long, limit: Int = 20): Flow<List<SeriesEntity>> =
+        seriesDao.getRecentlyAdded(profileId, limit).visible { it.categoryName }
     suspend fun getSeriesById(seriesId: String): SeriesEntity? = seriesDao.getById(seriesId)
     fun getSeriesByIdFlow(seriesId: String): Flow<SeriesEntity?> = seriesDao.getByIdFlow(seriesId)
     suspend fun toggleSeriesFavorite(series: SeriesEntity) = seriesDao.setFavorite(series.seriesId, !series.isFavorite)
@@ -171,19 +219,127 @@ class IptvRepository @Inject constructor(
     }
 
     // --- ARAMA ---
-    fun searchChannels(profileId: Long, query: String): Flow<List<ChannelEntity>> = channelDao.searchChannels(profileId, query)
-    fun searchVod(profileId: Long, query: String): Flow<List<VodEntity>> = vodDao.searchVod(profileId, query)
-    fun searchSeries(profileId: Long, query: String): Flow<List<SeriesEntity>> = seriesDao.searchSeries(profileId, query)
+    // Önce FTS dizini (anlık, kelime başı eşleşmesi); sonuç yoksa kelime içinde arayan LIKE.
+    fun searchChannels(profileId: Long, query: String): Flow<List<ChannelEntity>> =
+        ftsThenLike(FtsQuery.build(query), { channelDao.searchChannelsFts(profileId, it) }) {
+            channelDao.searchChannels(profileId, query)
+        }.visible { it.categoryName }
+
+    fun searchVod(profileId: Long, query: String): Flow<List<VodEntity>> =
+        ftsThenLike(FtsQuery.build(query), { vodDao.searchVodFts(profileId, it) }) {
+            vodDao.searchVod(profileId, query)
+        }.visible { it.categoryName }
+
+    fun searchSeries(profileId: Long, query: String): Flow<List<SeriesEntity>> =
+        ftsThenLike(FtsQuery.build(query), { seriesDao.searchSeriesFts(profileId, it) }) {
+            seriesDao.searchSeries(profileId, query)
+        }.visible { it.categoryName }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun <T> ftsThenLike(
+        match: String?,
+        fts: (String) -> Flow<List<T>>,
+        like: () -> Flow<List<T>>
+    ): Flow<List<T>> {
+        if (match == null) return like()
+        return fts(match).flatMapLatest { if (it.isEmpty()) like() else flowOf(it) }
+    }
 
     // --- EPG ---
-    fun getCurrentEpg(epgChannelId: String): Flow<EpgProgramEntity?> =
-        epgDao.getCurrentProgram(epgChannelId, System.currentTimeMillis())
+    // Saatler ham XMLTV değeriyle saklanır; kullanıcının saat kaydırması (EPG Offset)
+    // sorguda ve gösterimde uygulanır, böylece ayar değişince yeniden indirme gerekmez.
+    private fun epgShiftMs(): Long = EpgOffset.toMillis(preferences.epgOffsetHours.value)
 
-    fun getProgramsForChannel(epgChannelId: String, fromMs: Long, toMs: Long): Flow<List<EpgProgramEntity>> =
-        epgDao.getProgramsForChannel(epgChannelId, fromMs, toMs)
+    private fun EpgProgramEntity.shifted(shift: Long): EpgProgramEntity =
+        if (shift == 0L) this else copy(startTimeMs = startTimeMs + shift, endTimeMs = endTimeMs + shift)
+
+    fun getCurrentEpg(epgChannelId: String): Flow<EpgProgramEntity?> {
+        val shift = epgShiftMs()
+        return epgDao.getCurrentProgram(epgChannelId, System.currentTimeMillis() - shift)
+            .map { it?.shifted(shift) }
+    }
+
+    /** Şu an yayındaki program (kaydırma uygulanmış). */
+    suspend fun getNowPlaying(epgChannelId: String, nowMs: Long = System.currentTimeMillis()): EpgProgramEntity? {
+        val shift = epgShiftMs()
+        // Kaydırırken aynı kanal tekrar tekrar sorulur; program bitene kadar önbellekten ver.
+        nowPlayingCache[epgChannelId]?.let { cached ->
+            if (cached.shift == shift && nowMs in cached.validFrom until cached.validUntil) return cached.program
+        }
+        val program = epgDao.getCurrentProgramOnce(epgChannelId, nowMs - shift)?.shifted(shift)
+        nowPlayingCache[epgChannelId] = NowPlayingEntry(
+            program = program,
+            shift = shift,
+            validFrom = program?.startTimeMs ?: nowMs,
+            validUntil = program?.endTimeMs ?: (nowMs + 60_000L)
+        )
+        return program
+    }
+
+    private data class NowPlayingEntry(
+        val program: EpgProgramEntity?,
+        val shift: Long,
+        val validFrom: Long,
+        val validUntil: Long
+    )
+
+    private val nowPlayingCache = java.util.concurrent.ConcurrentHashMap<String, NowPlayingEntry>()
+
+    fun getProgramsForChannel(epgChannelId: String, fromMs: Long, toMs: Long): Flow<List<EpgProgramEntity>> {
+        val shift = epgShiftMs()
+        return epgDao.getProgramsForChannel(epgChannelId, fromMs - shift, toMs - shift)
+            .map { list -> list.map { it.shifted(shift) } }
+    }
+
+    /**
+     * Kullanılacak XMLTV adresi: Ayarlar'daki özel URL > profilin EPG URL'si >
+     * (otomatik açıksa) Xtream sunucusunun xmltv.php adresi.
+     */
+    fun resolveEpgUrl(profile: PlaylistProfileEntity): String? {
+        preferences.epgCustomUrl.value.takeIf { it.isNotBlank() }?.let { return it }
+        profile.epgUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        if (preferences.epgAutoXtream.value && profile.type == PlaylistType.XTREAM) {
+            val u = profile.username ?: return null
+            val p = profile.password ?: return null
+            return "${profile.serverUrl.trimEnd('/')}/xmltv.php?username=${Uri.encode(u)}&password=${Uri.encode(p)}"
+        }
+        return null
+    }
+
+    /**
+     * Geçmiş bir programın arşiv (catch-up) adresi. Kanal arşiv tutmuyorsa, program bitmemişse
+     * veya profil Xtream değilse null. [program] ekranda gösterilen (kaydırılmış) saatleri taşır.
+     */
+    suspend fun buildCatchupUrl(channel: ChannelEntity, program: EpgProgramEntity): String? {
+        if (!channel.tvArchive) return null
+        if (!CatchupUrl.isAvailable(channel.archiveDays, program.startTimeMs, program.endTimeMs, System.currentTimeMillis())) return null
+        val profile = playlistDao.getProfileById(channel.profileId) ?: return null
+        if (profile.type != PlaylistType.XTREAM) return null
+        val user = profile.username ?: return null
+        val pass = profile.password ?: return null
+        val shift = epgShiftMs()
+        return CatchupUrl.build(
+            serverUrl = profile.serverUrl,
+            username = user,
+            password = pass,
+            rawStreamId = channel.streamId.removePrefix("${profile.id}_"),
+            startMs = program.startTimeMs - shift,
+            endMs = program.endTimeMs - shift
+        )
+    }
+
+    /** Etkin profilin EPG'sini indirir. @return indirilen URL yoksa false. */
+    suspend fun syncEpgForActiveProfile(): Boolean = withContext(Dispatchers.IO) {
+        val profile = playlistDao.getActiveProfileOnce() ?: return@withContext false
+        val url = resolveEpgUrl(profile) ?: return@withContext false
+        syncEpg(url)
+        true
+    }
 
     // --- İZLEME GEÇMİŞİ ---
     fun getRecentHistory(profileId: Long): Flow<List<WatchHistoryEntity>> = watchHistoryDao.getRecentHistory(profileId)
+    fun getContinueWatching(profileId: Long, type: String): Flow<List<WatchHistoryEntity>> =
+        watchHistoryDao.getContinueWatching(profileId, type)
     suspend fun getWatchPosition(contentId: String): Long = watchHistoryDao.getPosition(contentId) ?: 0L
     suspend fun saveWatchProgress(item: WatchHistoryEntity) = watchHistoryDao.upsert(item)
 
@@ -195,11 +351,15 @@ class IptvRepository @Inject constructor(
             PlaylistType.M3U_URL -> syncM3uUrl(profile, onProgress)
             PlaylistType.M3U_LOCAL -> syncM3uLocal(profile, onProgress)
         }
-        profile.epgUrl?.takeIf { it.isNotBlank() }?.let { epgUrl ->
+        resolveEpgUrl(profile)?.let { epgUrl ->
             onProgress?.invoke("EPG senkronize ediliyor...")
-            syncEpg(epgUrl)
+            runCatching { syncEpg(epgUrl) }
+                .onFailure { onProgress?.invoke("EPG alınamadı: ${it.message}") }
         }
         playlistDao.updateLastSynced(profileId, System.currentTimeMillis())
+        applyPendingFavorites(profileId)
+        // Yeni gelen filmler/diziler için TMDB puan ve özetlerini arka planda doldur.
+        scheduler.enqueueTmdbEnrich(restart = false)
     }
 
     private suspend fun syncXtream(profile: PlaylistProfileEntity, onProgress: ((String) -> Unit)?) {
@@ -264,9 +424,7 @@ class IptvRepository @Inject constructor(
             val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
             val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
             val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-            val ratedVod = vodDao.getRatedItems(profile.id)
             val favoriteSeriesIds = seriesDao.getFavoriteIds(profile.id)
-            val ratedSeries = seriesDao.getRatedItems(profile.id)
             database.withTransaction {
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(liveFile, channelDao::insertAll)
@@ -275,11 +433,11 @@ class IptvRepository @Inject constructor(
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                tmdbMetadataDao.applyMovieRatings(profile.id)
                 seriesDao.deleteByProfile(profile.id)
                 replayStaged<SeriesEntity>(seriesFile, seriesDao::insertAll)
                 favoriteSeriesIds.forEach { seriesDao.setFavorite(it, true) }
-                ratedSeries.forEach { item -> item.imdbRating?.let { seriesDao.updateRating(item.seriesId, it) } }
+                tmdbMetadataDao.applySeriesRatings(profile.id)
             }
         } finally {
             liveFile.delete()
@@ -318,8 +476,7 @@ class IptvRepository @Inject constructor(
                 val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
                 val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
                 val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-                val ratedVod = vodDao.getRatedItems(profile.id)
-                database.withTransaction {
+                    database.withTransaction {
                     channelDao.deleteByProfile(profile.id)
                     replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
                     favoriteChannelIds.forEach { channelDao.setFavorite(it, true) }
@@ -327,7 +484,7 @@ class IptvRepository @Inject constructor(
                     vodDao.deleteByProfile(profile.id)
                     replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                     favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                    ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                    tmdbMetadataDao.applyMovieRatings(profile.id)
                 }
             } finally {
                 channelFile.delete()
@@ -365,7 +522,6 @@ class IptvRepository @Inject constructor(
             val favoriteChannelIds = channelDao.getFavoriteIds(profile.id)
             val hiddenChannelIds = channelDao.getHiddenIds(profile.id)
             val favoriteVodIds = vodDao.getFavoriteIds(profile.id)
-            val ratedVod = vodDao.getRatedItems(profile.id)
             database.withTransaction {
                 channelDao.deleteByProfile(profile.id)
                 replayStaged<ChannelEntity>(channelFile, channelDao::insertAll)
@@ -374,7 +530,7 @@ class IptvRepository @Inject constructor(
                 vodDao.deleteByProfile(profile.id)
                 replayStaged<VodEntity>(vodFile, vodDao::insertAll)
                 favoriteVodIds.forEach { vodDao.setFavorite(it, true) }
-                ratedVod.forEach { item -> item.imdbRating?.let { vodDao.updateRating(item.streamId, it) } }
+                tmdbMetadataDao.applyMovieRatings(profile.id)
             }
         } finally {
             channelFile.delete()
@@ -389,11 +545,18 @@ class IptvRepository @Inject constructor(
             val epgFile = stagingFile("epg")
             val body = response.body ?: error("EPG yanıtı boş")
             try {
+                // Yalnızca son 3 günden 8 gün sonrasına kadarki programlar saklanır: büyük XMLTV
+                // dosyalarında veritabanı ve senkron süresi ciddi biçimde küçülür.
+                val windowStart = System.currentTimeMillis() - EPG_KEEP_PAST_MS
+                val windowEnd = System.currentTimeMillis() + EPG_KEEP_FUTURE_MS
                 epgFile.bufferedWriter().use { writer ->
                     body.byteStream().use {
                         xmltvParser.parse(it) { batch ->
-                            writer.write(json.encodeToString(batch))
-                            writer.newLine()
+                            val kept = batch.filter { p -> p.endTimeMs >= windowStart && p.startTimeMs <= windowEnd }
+                            if (kept.isNotEmpty()) {
+                                writer.write(json.encodeToString(kept))
+                                writer.newLine()
+                            }
                         }
                     }
                 }
@@ -401,10 +564,36 @@ class IptvRepository @Inject constructor(
                     epgDao.clearAll()
                     replayStaged<EpgProgramEntity>(epgFile, epgDao::insertAll)
                 }
+                nowPlayingCache.clear()
+                preferences.setEpgLastUpdated(System.currentTimeMillis())
             } finally {
                 epgFile.delete()
             }
         }
+    }
+
+    private companion object {
+        // Geçmiş 3 gün: catch-up (arşiv) rehberinde geçmiş programlar listelenebilsin.
+        const val EPG_KEEP_PAST_MS = 3 * 24 * 60 * 60 * 1000L
+        const val EPG_KEEP_FUTURE_MS = 8 * 24 * 60 * 60 * 1000L
+    }
+
+    /** Yedekten geri yüklenen favorileri, katalog indikten sonra işaretle. */
+    private suspend fun applyPendingFavorites(profileId: Long) {
+        val pending = preferences.pendingFavorites()
+        if (pending.isEmpty()) return
+        val prefix = "${profileId}_"
+        val remaining = pending.filterNot { key ->
+            val id = key.substringAfter(':')
+            if (!id.startsWith(prefix)) return@filterNot false
+            when (key.substringBefore(':')) {
+                "c" -> channelDao.setFavorite(id, true)
+                "v" -> vodDao.setFavorite(id, true)
+                "s" -> seriesDao.setFavorite(id, true)
+            }
+            true
+        }
+        preferences.setPendingFavorites(remaining.toSet())
     }
 
     private fun stagingFile(prefix: String): File =

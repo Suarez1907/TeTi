@@ -41,6 +41,8 @@ class StreamingXtreamParser {
                 var categoryId = ""
                 var logoUrl: String? = null
                 var epgChannelId: String? = null
+                var tvArchive = false
+                var archiveDays = 0
 
                 reader.beginObject()
                 while (reader.hasNext()) {
@@ -50,6 +52,8 @@ class StreamingXtreamParser {
                         "category_id" -> categoryId = readSafeString(reader)
                         "stream_icon" -> logoUrl = readSafeString(reader).ifBlank { null }
                         "epg_channel_id" -> epgChannelId = readSafeString(reader).ifBlank { null }
+                        "tv_archive" -> tvArchive = readSafeString(reader).trim() in setOf("1", "true")
+                        "tv_archive_duration" -> archiveDays = readSafeString(reader).trim().toIntOrNull() ?: 0
                         else -> reader.skipValue()
                     }
                 }
@@ -65,7 +69,9 @@ class StreamingXtreamParser {
                             streamUrl = "$cleanHost/live/$encodedUsername/$encodedPassword/$streamId.ts",
                             logoUrl = logoUrl,
                             epgChannelId = epgChannelId,
-                            sortOrder = sortIndex++
+                            sortOrder = sortIndex++,
+                            tvArchive = tvArchive && archiveDays > 0,
+                            archiveDays = archiveDays
                         )
                     )
                     if (batch.size >= BATCH_SIZE) {
@@ -104,7 +110,6 @@ class StreamingXtreamParser {
                 var name = ""
                 var categoryId = ""
                 var posterUrl: String? = null
-                var rating: Float? = null
                 var ext = "mp4"
                 var added = 0L
 
@@ -115,11 +120,6 @@ class StreamingXtreamParser {
                         "name" -> name = readSafeString(reader)
                         "category_id" -> categoryId = readSafeString(reader)
                         "stream_icon" -> posterUrl = readSafeString(reader).ifBlank { null }
-                        "rating" -> rating = readSafeString(reader).toFloatOrNull()
-                        "rating_5based" -> {
-                            val r5 = readSafeString(reader).toFloatOrNull()
-                            if (rating == null && r5 != null && r5 > 0f) rating = r5 * 2f
-                        }
                         "container_extension" -> ext = readSafeString(reader).ifBlank { "mp4" }
                         "added" -> added = readSafeString(reader).toLongOrNull() ?: 0L
                         else -> reader.skipValue()
@@ -136,7 +136,7 @@ class StreamingXtreamParser {
                             categoryName = categoryMap[categoryId] ?: "Diğer",
                             streamUrl = "$cleanHost/movie/$encodedUsername/$encodedPassword/$streamId.$ext",
                             posterUrl = posterUrl,
-                            imdbRating = rating?.takeIf { it > 0f },
+                            imdbRating = null, // sağlayıcı puanı yok sayılır; TMDB doldurur
                             containerExtension = ext,
                             addedTimestamp = added
                         )
@@ -173,7 +173,6 @@ class StreamingXtreamParser {
                 var posterUrl: String? = null
                 var backdropUrl: String? = null
                 var plot: String? = null
-                var rating: Float? = null
                 var releaseYear: Int? = null
                 var lastModified = 0L
 
@@ -189,11 +188,6 @@ class StreamingXtreamParser {
                             backdropUrl = arr
                         }
                         "plot" -> plot = readSafeString(reader).ifBlank { null }
-                        "rating" -> rating = readSafeString(reader).toFloatOrNull()
-                        "rating_5based" -> {
-                            val r5 = readSafeString(reader).toFloatOrNull()
-                            if (rating == null && r5 != null && r5 > 0f) rating = r5 * 2f
-                        }
                         "releaseDate" -> {
                             val date = readSafeString(reader)
                             releaseYear = date.take(4).toIntOrNull()
@@ -214,7 +208,7 @@ class StreamingXtreamParser {
                             posterUrl = posterUrl,
                             backdropUrl = backdropUrl,
                             plot = plot,
-                            imdbRating = rating?.takeIf { it > 0f },
+                            imdbRating = null, // sağlayıcı puanı yok sayılır; TMDB doldurur
                             releaseYear = releaseYear,
                             lastModified = lastModified
                         )

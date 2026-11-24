@@ -9,6 +9,7 @@ import com.teti.iptv.data.local.entity.VodEntity
 import com.teti.iptv.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,12 +17,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: IptvRepository
@@ -33,27 +35,26 @@ class SearchViewModel @Inject constructor(
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    private val debouncedQuery = _query
-        .debounce(300)
-        .distinctUntilChanged()
+    // Combine the query with the active profile so results update when the profile
+    // loads (reading activeProfile.value directly stayed null: nothing subscribed to it).
+    private val searchInput: Flow<Pair<String, PlaylistProfileEntity?>> =
+        combine(
+            _query.debounce(300).distinctUntilChanged(),
+            repository.getActiveProfile()
+        ) { q, profile -> q.trim() to profile }
+            .distinctUntilChanged()
 
-    val channelResults: Flow<List<ChannelEntity>> = debouncedQuery.flatMapLatest { q ->
-        val profile = activeProfile.value
-        if (q.length < 2 || profile == null) emptyFlow()
-        else repository.searchChannels(profile.id, q)
-    }
+    private fun <T> search(block: (Long, String) -> Flow<List<T>>): Flow<List<T>> =
+        searchInput.flatMapLatest { (q, profile) ->
+            if (q.length < 2 || profile == null) flowOf(emptyList())
+            else block(profile.id, q)
+        }
 
-    val vodResults: Flow<List<VodEntity>> = debouncedQuery.flatMapLatest { q ->
-        val profile = activeProfile.value
-        if (q.length < 2 || profile == null) emptyFlow()
-        else repository.searchVod(profile.id, q)
-    }
+    val channelResults: Flow<List<ChannelEntity>> = search(repository::searchChannels)
 
-    val seriesResults: Flow<List<SeriesEntity>> = debouncedQuery.flatMapLatest { q ->
-        val profile = activeProfile.value
-        if (q.length < 2 || profile == null) emptyFlow()
-        else repository.searchSeries(profile.id, q)
-    }
+    val vodResults: Flow<List<VodEntity>> = search(repository::searchVod)
+
+    val seriesResults: Flow<List<SeriesEntity>> = search(repository::searchSeries)
 
     fun onQueryChange(newQuery: String) {
         _query.value = newQuery

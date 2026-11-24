@@ -31,17 +31,23 @@ import androidx.navigation.NavHostController
 import com.teti.iptv.data.local.entity.ChannelEntity
 import com.teti.iptv.data.local.entity.SeriesEntity
 import com.teti.iptv.data.local.entity.VodEntity
+import com.teti.iptv.data.local.entity.WatchHistoryEntity
 import com.teti.iptv.ui.device.rememberDeviceProfile
 import com.teti.iptv.ui.screen.LiveTvScreen
 import com.teti.iptv.ui.screen.SearchScreen
 import com.teti.iptv.ui.screen.SeriesScreen
 import com.teti.iptv.ui.screen.SettingsScreen
 import com.teti.iptv.ui.screen.VodScreen
-import com.teti.iptv.ui.theme.TeTiAmber
-import com.teti.iptv.ui.theme.TeTiAmberDeep
-import com.teti.iptv.ui.theme.TeTiInk
-import com.teti.iptv.ui.theme.TeTiMuted
-import com.teti.iptv.ui.theme.TeTiSurface
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
+import com.teti.iptv.ui.theme.TeTiBlack
+import com.teti.iptv.ui.theme.TeTiBorder
+import com.teti.iptv.ui.theme.TeTiFaint
+import com.teti.iptv.ui.theme.TeTiRed
+import com.teti.iptv.ui.theme.TeTiText
 import kotlinx.coroutines.launch
 
 private data class TabSpec(val title: String, val icon: ImageVector)
@@ -71,25 +77,28 @@ fun MainShell(navController: NavHostController) {
     }
 
     Scaffold(
-        containerColor = TeTiInk,
+        containerColor = TeTiBlack,
         bottomBar = {
             if (!device.useNavigationRail) {
-                NavigationBar(containerColor = TeTiSurface) {
-                    tabs.forEachIndexed { index, tab ->
-                        val selected = pagerState.currentPage == index
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { openPage(index) },
-                            icon = { Icon(tab.icon, contentDescription = tab.title) },
-                            label = { Text(tab.title) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = TeTiAmber,
-                                selectedTextColor = TeTiAmber,
-                                indicatorColor = TeTiAmber.copy(alpha = 0.18f),
-                                unselectedIconColor = TeTiMuted,
-                                unselectedTextColor = TeTiMuted
+                Column {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(TeTiBorder))
+                    NavigationBar(containerColor = TeTiBlack, tonalElevation = 0.dp) {
+                        tabs.forEachIndexed { index, tab ->
+                            val selected = pagerState.currentPage == index
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { openPage(index) },
+                                icon = { Icon(tab.icon, contentDescription = tab.title) },
+                                label = { Text(tab.title) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = TeTiRed,
+                                    selectedTextColor = TeTiText,
+                                    indicatorColor = TeTiRed.copy(alpha = 0.12f),
+                                    unselectedIconColor = TeTiFaint,
+                                    unselectedTextColor = TeTiFaint
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -102,7 +111,7 @@ fun MainShell(navController: NavHostController) {
                 .padding(if (device.isTelevision) 12.dp else 0.dp)
         ) {
             if (device.useNavigationRail) {
-                NavigationRail(containerColor = TeTiSurface) {
+                NavigationRail(containerColor = TeTiBlack) {
                     tabs.forEachIndexed { index, tab ->
                         val selected = pagerState.currentPage == index
                         NavigationRailItem(
@@ -111,11 +120,11 @@ fun MainShell(navController: NavHostController) {
                             icon = { Icon(tab.icon, contentDescription = tab.title) },
                             label = { Text(tab.title) },
                             colors = NavigationRailItemDefaults.colors(
-                                selectedIconColor = TeTiAmberDeep,
-                                selectedTextColor = TeTiAmber,
-                                indicatorColor = TeTiAmber,
-                                unselectedIconColor = TeTiMuted,
-                                unselectedTextColor = TeTiMuted
+                                selectedIconColor = TeTiRed,
+                                selectedTextColor = TeTiText,
+                                indicatorColor = TeTiRed.copy(alpha = 0.12f),
+                                unselectedIconColor = TeTiFaint,
+                                unselectedTextColor = TeTiFaint
                             )
                         )
                     }
@@ -131,12 +140,20 @@ fun MainShell(navController: NavHostController) {
                 beyondViewportPageCount = 0
             ) { page ->
                 when (page) {
-                    Screen.TAB_LIVE -> LiveTvScreen(onPlayChannel = { navController.openPlayer(it) })
+                    Screen.TAB_LIVE -> LiveTvScreen(
+                        onPlayChannel = { navController.openPlayer(it) },
+                        onOpenGuide = { navController.navigate(Screen.Guide.route) { launchSingleTop = true } },
+                        onOpenMultiView = { navController.navigate(Screen.MultiView.route) { launchSingleTop = true } }
+                    )
                     Screen.TAB_VOD -> VodScreen(
                         onMovieClick = { navController.openVod(it) },
-                        onPlayMovie = { navController.openMovie(it) }
+                        onPlayMovie = { navController.openMovie(it) },
+                        onResume = { navController.resume(it) }
                     )
-                    Screen.TAB_SERIES -> SeriesScreen(onSeriesClick = { navController.openSeries(it) })
+                    Screen.TAB_SERIES -> SeriesScreen(
+                        onSeriesClick = { navController.openSeries(it) },
+                        onResume = { navController.resume(it) }
+                    )
                     Screen.TAB_SEARCH -> SearchScreen(
                         onPlayChannel = { navController.openPlayer(it) },
                         onMovieClick = { navController.openVod(it) },
@@ -169,6 +186,16 @@ private fun NavHostController.openMovie(movie: VodEntity) {
             isLive = false
         )
     ) { launchSingleTop = true }
+}
+
+/** Devam et: adres kayıtlıysa doğrudan oynat (konum kaldığı yerden), yoksa film detayını aç. */
+private fun NavHostController.resume(entry: WatchHistoryEntity) {
+    val url = entry.streamUrl
+    if (url != null) {
+        navigate(Screen.Player.createRoute(url, entry.title, entry.contentId, isLive = false)) { launchSingleTop = true }
+    } else if (entry.contentType == WatchHistoryEntity.TYPE_MOVIE) {
+        navigate(Screen.VodDetail.createRoute(entry.contentId)) { launchSingleTop = true }
+    }
 }
 
 private fun NavHostController.openVod(movie: VodEntity) {

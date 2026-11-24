@@ -25,5 +25,9 @@ data class ChannelEntity(
     val epgChannelId: String? = null,
     val isFavorite: Boolean = false,
     val isHidden: Boolean = false,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    /** Sağlayıcı bu kanal için geçmiş yayın arşivi tutuyor mu (Xtream tv_archive). */
+    val tvArchive: Boolean = false,
+    /** Arşivin kaç gün geriye gittiği (Xtream tv_archive_duration). */
+    val archiveDays: Int = 0
 )

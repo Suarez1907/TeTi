@@ -17,6 +17,10 @@ sealed class Screen(val route: String) {
         }
     }
 
+    data object Guide : Screen("guide")
+
+    data object MultiView : Screen("multiview")
+
     companion object {
         const val TAB_LIVE = 0
         const val TAB_VOD = 1

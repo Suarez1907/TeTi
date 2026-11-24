@@ -37,6 +37,15 @@ interface VodDao {
     @RawQuery(observedEntities = [VodEntity::class])
     fun getVodPagingRaw(query: SupportSQLiteQuery): PagingSource<Int, VodEntity>
 
+    @Query(
+        """
+        SELECT vod_movies.* FROM vod_movies JOIN vod_fts ON vod_movies.rowid = vod_fts.rowid
+        WHERE vod_fts MATCH :match AND vod_movies.profileId = :profileId
+        LIMIT 100
+        """
+    )
+    fun searchVodFts(profileId: Long, match: String): Flow<List<VodEntity>>
+
     @Query("SELECT * FROM vod_movies WHERE profileId = :profileId AND (title LIKE '%' || :query || '%' OR categoryName LIKE '%' || :query || '%') LIMIT 100")
     fun searchVod(profileId: Long, query: String): Flow<List<VodEntity>>
 
@@ -53,7 +62,7 @@ interface VodDao {
     suspend fun setFavorite(streamId: String, isFavorite: Boolean)
 
     @Query("UPDATE vod_movies SET imdbRating = :rating WHERE streamId = :streamId")
-    suspend fun updateRating(streamId: String, rating: Float)
+    suspend fun updateRating(streamId: String, rating: Float?)
 
     @Query("SELECT streamId FROM vod_movies WHERE profileId = :profileId AND isFavorite = 1")
     suspend fun getFavoriteIds(profileId: Long): List<String>
